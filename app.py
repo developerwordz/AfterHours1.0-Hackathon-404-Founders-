@@ -1,15 +1,27 @@
+
 import sys
 from pathlib import Path
 
 import streamlit as st
 
+# ============================================================
+# PROJECT PATH
+# ============================================================
+
 sys.path.insert(0, str(Path(__file__).parent))
+
+# ============================================================
+# PROJECT IMPORTS
+# ============================================================
 
 from factory import (
     create_factory,
     simulate_machine_failure,
     simulate_supplier_failure,
 )
+
+from supply_chain_agent import initialize_supply_chain
+from ui.supply_chain import render_supply_chain_dashboard
 
 from gemini_orchestrator import run_gemini_orchestrator
 
@@ -23,6 +35,7 @@ from orchestrator import execute_approved_plan
 
 from ui.styling import apply_theme
 from ui.components import render_agent_timeline
+
 from ui.tiles import (
     inject_tile_css,
     render_machine_grid,
@@ -157,6 +170,7 @@ defaults = {
     "selected_material": None,
     "active_page": "Factory Floor",
 
+    # Machine recovery
     "latest_incident": None,
     "recovery_report": None,
     "gemini_analysis": None,
@@ -164,6 +178,7 @@ defaults = {
     "orchestration_time": None,
     "machine_execution_results": {},
 
+    # Supplier recovery
     "supplier_latest_incident": None,
     "supplier_recovery_report": None,
     "supplier_gemini_analysis": None,
@@ -171,8 +186,10 @@ defaults = {
     "supplier_orchestration_time": None,
     "supplier_execution_results": {},
 
+    # Inventory
     "inventory_incidents": [],
 
+    # Quality
     "quality_agent_last_result": None,
     "last_quality_batch": None,
 }
@@ -182,6 +199,9 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 factory = st.session_state.factory
+
+# Initialize the material-specific supply networks.
+initialize_supply_chain(factory)
 
 
 # ============================================================
@@ -286,6 +306,7 @@ def render_machine_profile(machine_id):
         <style>
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
+
         .block-container {
             max-width: 1400px;
             padding-top: 2rem;
@@ -303,12 +324,15 @@ def render_machine_profile(machine_id):
         f"""
         <div class="machine-hero">
             <div class="machine-hero-icon">⚙️</div>
+
             <div class="machine-hero-id">
                 TEXRESQ // MACHINERY ASSET // {machine_id}
             </div>
+
             <div class="machine-hero-name">
                 {machine.get('name', machine_id)}
             </div>
+
             <div class="machine-hero-status">
                 {status_icon} OPERATIONAL STATUS: {status}
             </div>
@@ -580,12 +604,33 @@ with st.sidebar:
 
 
 # ============================================================
-# QUALITY CONTROL PAGE ROUTE
+# QUALITY CONTROL PAGE
 # ============================================================
 
 if st.session_state.active_page == "Quality Control":
 
     render_quality_dashboard(factory)
+    st.stop()
+
+
+# ============================================================
+# SUPPLY CHAIN PAGE
+# ============================================================
+
+if st.session_state.active_page == "Supply Chain":
+
+    st.title("🚚 Material-Specific Supply Chain Control")
+
+    st.caption(
+        "Autonomous supplier monitoring, material-specific sourcing "
+        "and intelligent supplier failover."
+    )
+
+    render_supply_chain_dashboard(
+        factory,
+        simulate_supplier_failure,
+    )
+
     st.stop()
 
 
@@ -726,174 +771,6 @@ if st.session_state.inventory_incidents:
                 f"**{inc['incident_id']}** · "
                 f"{inc['material_name']} · "
                 f"Loss: `{inc['quantity_lost_kg']} kg`"
-            )
-
-st.divider()
-
-
-# ============================================================
-# SUPPLIER NETWORK
-# ============================================================
-
-st.subheader("🚚 Supply Chain Network Architecture")
-
-st.caption(
-    "Primary (Low Cost) → Backup (Reliability) → "
-    "Emergency (Rapid Response) Supplier Tiers."
-)
-
-tier_configs = [
-    (1, "PRIMARY SOURCING", "Optimized unit cost economics"),
-    (2, "BACKUP SOURCING", "Redundant regional fallback"),
-    (3, "EMERGENCY SOURCING", "Rapid-dispatch high-availability stock"),
-]
-
-supplier_cols = st.columns(3)
-
-for col, (tier_num, tier_label, tier_desc) in zip(
-    supplier_cols,
-    tier_configs,
-):
-
-    sup_item = next(
-        (
-            (supplier_id, supplier)
-            for supplier_id, supplier in suppliers.items()
-            if supplier.get("tier") == tier_num
-        ),
-        None,
-    )
-
-    with col:
-
-        with st.container(border=True):
-
-            st.caption(f"TIER {tier_num} · {tier_label}")
-
-            if sup_item is None:
-                st.warning("No supplier provisioned.")
-                continue
-
-            sup_id, sup_obj = sup_item
-
-            st.markdown(f"#### {sup_obj['name']}")
-
-            render_status(sup_obj.get("status", "UNKNOWN"))
-
-            st.caption(tier_desc)
-
-            sc1, sc2 = st.columns(2)
-
-            sc1.metric(
-                "Reliability",
-                f"{sup_obj.get('reliability_score', 0)}%",
-            )
-
-            sc2.metric(
-                "Delivery Lead Time",
-                f"{sup_obj.get('delivery_time_hrs', 0)} hrs",
-            )
-
-            capacity = number(sup_obj.get("max_supply_kg", 0))
-            committed = number(sup_obj.get("committed_supply_kg", 0))
-            remaining = max(0, capacity - committed)
-
-            st.metric("Available Capacity", f"{remaining:,.0f} kg")
-
-            st.progress(
-                min(committed / capacity, 1.0)
-                if capacity > 0
-                else 0.0
-            )
-
-            with st.popover("🔍 Inspect Supplier Parameters"):
-
-                st.write(f"**Supplier ID:** `{sup_id}`")
-                st.write(f"**Tier Level:** {tier_num}")
-                st.write(f"**Status:** {sup_obj.get('status')}")
-                st.write(f"**Max Supply:** {capacity:,.0f} kg")
-                st.write(f"**Committed Stock:** {committed:,.0f} kg")
-
-                st.write(
-                    f"**Rush Surcharge:** "
-                    f"${number(sup_obj.get('rush_fee_usd')):,.2f}"
-                )
-
-                st.markdown("##### Material Cost Matrix")
-
-                for material_id, price in sup_obj.get(
-                    "cost_per_kg",
-                    {},
-                ).items():
-
-                    st.text(f"• {material_id}: ${price}/kg")
-
-
-# ============================================================
-# SUPPLIER DISRUPTION SIMULATOR
-# ============================================================
-
-st.markdown("#### 🚨 Supplier Disruption Simulator")
-
-active_sup_opts = {
-    supplier_id: supplier
-    for supplier_id, supplier in suppliers.items()
-    if supplier.get("status") == "ACTIVE"
-}
-
-if active_sup_opts:
-
-    selected_sup_id = st.selectbox(
-        "Select Target Supplier to Simulate Outage",
-        list(active_sup_opts.keys()),
-        format_func=lambda supplier_id: (
-            f"{supplier_id} — {active_sup_opts[supplier_id]['name']}"
-        ),
-        key="sup_failure_dropdown",
-    )
-
-    if st.button(
-        "🚨 Simulate Supplier Outage Incident",
-        type="secondary",
-    ):
-
-        try:
-
-            incident = simulate_supplier_failure(
-                factory,
-                selected_sup_id,
-            )
-
-            clear_supplier_recovery()
-
-            st.session_state.supplier_latest_incident = incident
-
-            st.success(
-                f"Outage successfully triggered for supplier `{selected_sup_id}`"
-            )
-
-            st.rerun()
-
-        except Exception as error:
-            st.error(f"Failed to simulate supplier failure: {error}")
-
-else:
-    st.warning(
-        "No active suppliers eligible for disruption simulation."
-    )
-
-sup_incidents = factory.get("supplier_incidents", [])
-
-if sup_incidents:
-
-    with st.expander("📋 Supplier Incident History"):
-
-        for inc in reversed(sup_incidents):
-
-            st.error(
-                f"**{inc['incident_id']}** · "
-                f"{inc['supplier_name']} · "
-                f"Status: `{inc['status']}`"
             )
 
 st.divider()
@@ -1156,7 +1033,7 @@ with supplier_tab:
 
         st.info(
             "No active supplier disruption. Simulate a supplier failure "
-            "in the Supply Chain Network section to begin."
+            "in the Supply Chain page to begin."
         )
 
     else:
