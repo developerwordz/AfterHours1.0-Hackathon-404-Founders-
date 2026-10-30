@@ -1,4 +1,3 @@
-
 from agents import (
     machine_agent,
     inventory_agent,
@@ -7,58 +6,103 @@ from agents import (
     verification_agent
 )
 
+from recovery import (
+    generate_recovery_plan,
+    apply_recovery_plan
+)
+
 
 def run_orchestrator(factory, incident):
-    """
-    Coordinates specialist agents to analyse a factory disruption.
-    """
+    """Analyse a factory disruption and generate recovery recommendations."""
 
     print("\n===================================")
     print("       TEXRESQ ORCHESTRATOR")
     print("===================================")
 
-    # Step 1: Machine Agent
     print("\n[1/5] Machine Agent analysing failure...")
     machine_report = machine_agent(factory, incident)
 
-    # Step 2: Inventory Agent
-    print("[2/5] Inventory Agent checking stock...")
+    print("[2/5] Inventory Agent checking materials...")
     inventory_report = inventory_agent(factory, incident)
 
-    # Step 3: Production Agent
     print("[3/5] Production Agent analysing affected orders...")
     production_report = production_agent(factory, incident)
 
-    # Step 4: Sourcing Agent
     print("[4/5] Sourcing Agent checking suppliers...")
     sourcing_report = sourcing_agent(factory, incident)
 
-    # Step 5: Combine reports
-    print("[5/5] Combining agent reports...")
+    print("[5/5] Recovery Engine generating and evaluating plans...")
+    recovery_report = generate_recovery_plan(factory, incident)
 
     analysis = {
+        "incident": incident,
         "machine_report": machine_report,
         "inventory_report": inventory_report,
         "production_report": production_report,
-        "sourcing_report": sourcing_report
+        "sourcing_report": sourcing_report,
+        "recovery_report": recovery_report
     }
 
-    print("\nAnalysis completed successfully.")
+    print("\nAnalysis and recovery planning completed.")
 
     return analysis
 
 
+def execute_approved_plan(factory, plan):
+    """Execute a feasible plan after human approval, then verify the result."""
+
+    if not plan.get("feasible", False):
+        raise ValueError("Cannot execute an infeasible recovery plan.")
+
+    print(f"\nExecuting approved plan: {plan['plan_id']}")
+
+    receipt = apply_recovery_plan(factory, plan)
+
+    print("Recovery action applied.")
+    print("Running verification...")
+
+    verification = verification_agent(factory, plan["order_id"])
+
+    return {
+        "execution_receipt": receipt,
+        "verification": verification
+    }
+
+
 def print_orchestrator_report(analysis):
-    """Displays the combined analysis in a readable format."""
+    print("\n========== TEXRESQ ANALYSIS ==========")
 
-    print("\n========== FACTORY ANALYSIS ==========")
+    for key in (
+        "machine_report",
+        "inventory_report",
+        "production_report",
+        "sourcing_report"
+    ):
+        report = analysis[key]
 
-    for agent_key, report in analysis.items():
         print(f"\n{report['agent']}")
-        print("-" * 35)
+        print("-" * 40)
 
-        for key, value in report.items():
-            if key != "agent":
-                print(f"{key}: {value}")
+        for field, value in report.items():
+            if field != "agent":
+                print(f"{field}: {value}")
 
-    print("\n======================================")
+    print("\n========== RECOVERY RECOMMENDATIONS ==========")
+
+    recovery = analysis["recovery_report"]
+
+    for order_id, result in recovery["orders_recovery"].items():
+        print(f"\nOrder: {order_id}")
+        print(result["honest_assessment"])
+
+        for index, plan in enumerate(result["ranked_plans"], start=1):
+            print(
+                f"\n{index}. {plan['plan_id']} — {plan['name']}"
+            )
+            print(f"   Feasible: {plan['feasible']}")
+            print(f"   Meets deadline: {plan['meets_deadline']}")
+            print(f"   Completion: {plan['total_time_hrs']} hours")
+            print(f"   Additional cost: ${plan['additional_cost_usd']}")
+            print(f"   Notes: {plan['evaluation_notes']}")
+
+    print("\n==============================================")

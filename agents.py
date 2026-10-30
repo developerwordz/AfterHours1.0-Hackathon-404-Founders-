@@ -1,69 +1,80 @@
+from recovery import verify_recovery
+
 
 def machine_agent(factory, incident):
-    """Checks which machine failed and what its current condition is."""
     machine_id = incident["machine_id"]
-    machine = factory["machines"].get(machine_id)
-
-    if machine is None:
-        return {"status": "error", "message": f"Machine {machine_id} not found"}
+    machine = factory["machines"][machine_id]
 
     return {
         "agent": "Machine Agent",
         "machine_id": machine_id,
         "machine_name": machine["name"],
-        "machine_status": machine["status"],
-        "maintenance_hours": machine["maintenance_hours"],
-        "affected_order": machine.get("current_order"),
-        "message": f"{machine_id} is {machine['status']} and needs inspection."
+        "status": machine["status"],
+        "repair_hours": machine["maintenance_duration_hrs"],
+        "required_spare_part": machine["required_spare_part"],
+        "spare_part_available": incident["spare_part_in_stock"],
+        "message": f"{machine['name']} has failed."
     }
 
 
 def inventory_agent(factory, incident):
-    """Checks available materials and spare parts."""
+    available_materials = {}
+
+    for material_id, material in factory["raw_materials"].items():
+        available_materials[material_id] = {
+            "available_kg": round(
+                material["stock_kg"] - material["reserved_kg"], 2
+            ),
+            "name": material["name"]
+        }
+
     return {
         "agent": "Inventory Agent",
-        "inventory": factory["inventory"],
-        "spare_parts_available": factory["inventory"]["spare_parts"]["quantity"],
-        "message": "Inventory checked successfully."
+        "materials": available_materials,
+        "spare_parts": {
+            part_id: part["in_stock"]
+            for part_id, part in factory["spare_parts"].items()
+        },
+        "message": "Raw materials and spare parts checked."
     }
 
 
 def production_agent(factory, incident):
-    """Identifies orders affected by the machine failure."""
-    machine_id = incident["machine_id"]
     affected_orders = []
 
-    for order_id, order in factory["orders"].items():
-        if order["machine_id"] == machine_id:
-            affected_orders.append({
-                "order_id": order_id,
-                "quantity": order["quantity"],
-                "deadline_hours": order["deadline_hours"],
-                "priority": order["priority"],
-                "status": order["status"]
-            })
+    for order_id in incident["affected_order_ids"]:
+        order = factory["orders"][order_id]
+
+        affected_orders.append({
+            "order_id": order_id,
+            "client": order["client"],
+            "fabric_type": order["fabric_type"],
+            "remaining_quantity_m": order["remaining_quantity_m"],
+            "deadline_hrs": order["deadline_hrs"],
+            "priority": order["priority"] if "priority" in order else None,
+            "status": order["status"]
+        })
 
     return {
         "agent": "Production Agent",
         "affected_orders": affected_orders,
-        "message": f"Found {len(affected_orders)} affected order(s)."
+        "message": f"{len(affected_orders)} order(s) affected by the failure."
     }
 
 
 def sourcing_agent(factory, incident):
-    """Checks available suppliers for emergency material procurement."""
     suppliers = []
 
     for supplier_id, supplier in factory["suppliers"].items():
         suppliers.append({
             "supplier_id": supplier_id,
             "name": supplier["name"],
-            "lead_time_hours": supplier["lead_time_hours"],
-            "cost_per_metre": supplier["cost_per_metre"],
-            "reliability": supplier["reliability"]
+            "delivery_time_hrs": supplier["delivery_time_hrs"],
+            "cost_per_kg": supplier["cost_per_kg"],
+            "rush_fee_usd": supplier["rush_fee_usd"]
         })
 
-    suppliers.sort(key=lambda supplier: supplier["lead_time_hours"])
+    suppliers.sort(key=lambda item: item["delivery_time_hrs"])
 
     return {
         "agent": "Sourcing Agent",
@@ -72,8 +83,5 @@ def sourcing_agent(factory, incident):
     }
 
 
-def verification_agent(factory, recovery_plan):
-    """Checks whether a recovery plan has passed backend verification."""
-    from recovery import evaluate_recovery_plan
-
-    return evaluate_recovery_plan(factory, recovery_plan)
+def verification_agent(factory, order_id):
+    return verify_recovery(factory, order_id)
