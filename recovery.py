@@ -63,6 +63,7 @@ def evaluate_recovery_plan(factory: dict, plan: dict) -> dict:
             repair_cost_usd = part.get("cost_usd", 0.0)
             notes.append(f"Uses 1x '{part_id}' (${repair_cost_usd}) + {machine_ready_delay_hrs}h repair.")
 
+    
     # 3. Check Raw Material & Supplier Procurement
     supplier_delay_hrs = 0.0
     procurement_cost_usd = 0.0
@@ -70,23 +71,74 @@ def evaluate_recovery_plan(factory: dict, plan: dict) -> dict:
 
     if shortfall_kg > 0:
         supplier_id = plan.get("supplier_id")
+
         if not supplier_id:
             feasible = False
             notes.append(
-                f"Raw material shortfall of {shortfall_kg}kg ({mat_info['raw_material_id']}) "
-                "and no supplier specified in plan."
+                f"Raw material shortfall of {shortfall_kg}kg "
+                f"({mat_info['raw_material_id']}) and no supplier specified."
             )
+
+        elif supplier_id not in factory["suppliers"]:
+            feasible = False
+            notes.append(f"Supplier '{supplier_id}' does not exist.")
+
         else:
             supplier = factory["suppliers"][supplier_id]
-            supplier_delay_hrs = supplier["delivery_time_hrs"]
-            unit_cost = supplier["cost_per_kg"][mat_info["raw_material_id"]]
-            procurement_cost_usd = round(shortfall_kg * unit_cost + supplier["rush_fee_usd"], 2)
-            notes.append(
-                f"Procures {shortfall_kg}kg {mat_info['raw_material_id']} from {supplier['name']} "
-                f"(${procurement_cost_usd}, ETA {supplier_delay_hrs}h)."
-            )
+            rm_id = mat_info["raw_material_id"]
+
+            # Check supplier availability
+            if supplier.get("status", "ACTIVE") != "ACTIVE":
+                feasible = False
+                notes.append(
+                    f"Supplier {supplier['name']} is unavailable "
+                    f"(status: {supplier.get('status')})."
+                )
+
+            # Check material support
+            elif rm_id not in supplier.get("cost_per_kg", {}):
+                feasible = False
+                notes.append(
+                    f"{supplier['name']} does not supply {rm_id}."
+                )
+
+            else:
+                # Check remaining supplier capacity
+                max_supply = supplier.get("max_supply_kg", float("inf"))
+                committed = supplier.get("committed_supply_kg", 0.0)
+                remaining_capacity = max(0.0, max_supply - committed)
+
+                if shortfall_kg > remaining_capacity:
+                    feasible = False
+                    notes.append(
+                        f"{supplier['name']} has insufficient capacity. "
+                        f"Required: {shortfall_kg}kg, "
+                        f"Available capacity: {remaining_capacity}kg."
+                    )
+
+                else:
+                    supplier_delay_hrs = supplier["delivery_time_hrs"]
+
+                    unit_cost = supplier["cost_per_kg"][rm_id]
+
+                    procurement_cost_usd = round(
+                        shortfall_kg * unit_cost
+                        + supplier["rush_fee_usd"],
+                        2
+                    )
+
+                    notes.append(
+                        f"Procures {shortfall_kg}kg {rm_id} from "
+                        f"{supplier['name']} "
+                        f"(${procurement_cost_usd}, "
+                        f"ETA {supplier_delay_hrs}h)."
+                    )
+
     else:
-        notes.append(f"Sufficient {mat_info['raw_material_id']} in stock ({mat_info['available_kg']}kg available).")
+        notes.append(
+            f"Sufficient {mat_info['raw_material_id']} in stock "
+            f"({mat_info['available_kg']}kg available)."
+        )
 
     # 4. Calculate Production Time, Total Duration & Costs
     if feasible:
@@ -237,7 +289,22 @@ def generate_recovery_plan(factory: dict, incident: dict) -> dict:
         plan_counter = 1
 
         # Determine supplier options to test
-        supplier_options = [None] if not needs_material else [None, "SUP-PRIMARY", "SUP-BACKUP"]
+        # Determine supplier options to test
+       
+        # Dynamically discover available suppliers
+        available_suppliers = [
+            supplier_id
+            for supplier_id, supplier in factory["suppliers"].items()
+            if supplier.get("status", "ACTIVE") == "ACTIVE"
+            and order["raw_material_id"] in supplier.get("cost_per_kg", {})
+        ]
+
+        supplier_options = (
+            [None] + available_suppliers
+            if needs_material
+            else [None]
+        )
+
 
         # Strategy Group A: Reassign to other machines
         for m_id, machine in factory["machines"].items():
@@ -271,7 +338,7 @@ def generate_recovery_plan(factory: dict, incident: dict) -> dict:
                 plan_counter += 1
 
         # Strategy Group B: Wait for failed machine maintenance (+ supplier options if needed)
-        for sup_id in ([None] if not needs_material else ["SUP-PRIMARY", "SUP-BACKUP"]):
+        for sup_id in supplier_options:
             sup_label = f" + Procure via {factory['suppliers'][sup_id]['name']}" if sup_id else ""
             plan = {
                 "plan_id": f"PLAN-{order_id}-{plan_counter:02d}",
@@ -314,6 +381,39 @@ def apply_recovery_plan(factory: dict, plan: dict) -> dict:
     order_id = plan["order_id"]
     target_machine_id = plan["target_machine_id"]
     order = factory["orders"][order_id]
+    
+    # Revalidate supplier before executing an approved plan
+    mat_info = _calculate_material_shortfall(factory, order)
+    supplier_id = plan.get("supplier_id")
+
+    if mat_info["shortfall_kg"] > 0:
+        if not supplier_id:
+            raise ValueError("Cannot execute: raw material shortfall has no supplier.")
+
+        supplier = factory["suppliers"].get(supplier_id)
+
+        if not supplier or supplier.get("status", "ACTIVE") != "ACTIVE":
+            raise ValueError(
+                f"Cannot execute: supplier {supplier_id} is unavailable."
+            )
+
+        rm_id = mat_info["raw_material_id"]
+
+        if rm_id not in supplier.get("cost_per_kg", {}):
+            raise ValueError(
+                f"Supplier {supplier_id} cannot supply {rm_id}."
+            )
+
+        remaining_capacity = (
+            supplier.get("max_supply_kg", float("inf"))
+            - supplier.get("committed_supply_kg", 0.0)
+        )
+
+        if mat_info["shortfall_kg"] > remaining_capacity:
+            raise ValueError(
+                f"Supplier {supplier_id} no longer has sufficient capacity."
+            )
+
     old_machine_id = order["assigned_machine_id"]
     target_machine = factory["machines"][target_machine_id]
 
@@ -344,8 +444,19 @@ def apply_recovery_plan(factory: dict, plan: dict) -> dict:
 
     if mat_info["shortfall_kg"] > 0 and plan.get("supplier_id"):
         sup = factory["suppliers"][plan["supplier_id"]]
-        rm_entry["stock_kg"] += mat_info["shortfall_kg"]
-        changes.append(f"Procured {mat_info['shortfall_kg']}kg of {rm_id} from {sup['name']}.")
+
+        quantity = mat_info["shortfall_kg"]
+
+        rm_entry["stock_kg"] += quantity
+
+        sup["committed_supply_kg"] = (
+            sup.get("committed_supply_kg", 0.0) + quantity
+        )
+
+        changes.append(
+            f"Procured {quantity}kg of {rm_id} "
+            f"from {sup['name']}."
+        )
 
     rm_entry["reserved_kg"] += mat_info["required_kg"]
     changes.append(f"Reserved {mat_info['required_kg']}kg of {rm_id} for {order_id}.")

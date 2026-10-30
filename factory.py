@@ -107,24 +107,60 @@ def create_factory() -> dict:
             "rapier_gripper": {"id": "rapier_gripper", "name": "Carbon Rapier Gripper",    "in_stock": 2, "cost_usd": 120.0},
             "torsion_bar":    {"id": "torsion_bar",    "name": "Projectile Torsion Bar",   "in_stock": 0, "cost_usd": 450.0},
         },
-        "suppliers": {
-            "SUP-PRIMARY": {
-                "id": "SUP-PRIMARY",
-                "name": "Gujarat Spinners (Primary)",
-                "type": "PRIMARY",
-                "delivery_time_hrs": 12.0,    # Cheaper, but slower delivery
-                "cost_per_kg": {"RM-COTTON": 3.5, "RM-INDIGO": 4.0, "RM-POLY": 2.8},
-                "rush_fee_usd": 50.0,
-            },
-            "SUP-BACKUP": {
-                "id": "SUP-BACKUP",
-                "name": "Surat Express Mills (Backup)",
-                "type": "BACKUP",
-                "delivery_time_hrs": 3.0,     # Expensive, but fast express delivery
-                "cost_per_kg": {"RM-COTTON": 6.0, "RM-INDIGO": 7.0, "RM-POLY": 5.0},
-                "rush_fee_usd": 200.0,
-            },
+        
+"suppliers": {
+    "SUP-PRIMARY": {
+        "id": "SUP-PRIMARY",
+        "name": "Gujarat Spinners",
+        "type": "PRIMARY",
+        "tier": 1,
+        "status": "ACTIVE",
+        "reliability_score": 96,
+        "delivery_time_hrs": 12.0,
+        "cost_per_kg": {
+            "RM-COTTON": 3.5,
+            "RM-INDIGO": 4.0,
+            "RM-POLY": 2.8
         },
+        "rush_fee_usd": 50.0,
+        "max_supply_kg": 5000
+    },
+
+    "SUP-BACKUP": {
+        "id": "SUP-BACKUP",
+        "name": "Surat Express Mills",
+        "type": "BACKUP",
+        "tier": 2,
+        "status": "ACTIVE",
+        "reliability_score": 99,
+        "delivery_time_hrs": 3.0,
+        "cost_per_kg": {
+            "RM-COTTON": 6.0,
+            "RM-INDIGO": 7.0,
+            "RM-POLY": 5.0
+        },
+        "rush_fee_usd": 200.0,
+        "max_supply_kg": 3000
+    },
+
+    "SUP-EMERGENCY": {
+        "id": "SUP-EMERGENCY",
+        "name": "Mumbai Emergency Textile Supply",
+        "type": "EMERGENCY",
+        "tier": 3,
+        "status": "ACTIVE",
+        "reliability_score": 90,
+        "delivery_time_hrs": 1.5,
+        "cost_per_kg": {
+            "RM-COTTON": 9.0,
+            "RM-INDIGO": 10.0,
+            "RM-POLY": 8.0
+        },
+        "rush_fee_usd": 400.0,
+        "max_supply_kg": 1500
+    }
+},
+
         "incidents": [],
     }
 
@@ -177,6 +213,38 @@ def simulate_machine_failure(factory: dict, machine_id: str) -> dict:
     factory["incidents"].append(incident)
     return incident
 
+
+def simulate_supplier_failure(factory: dict, supplier_id: str) -> dict:
+    """
+    Simulates a supplier disruption and updates supplier status.
+    """
+
+    if supplier_id not in factory["suppliers"]:
+        raise ValueError(f"Supplier '{supplier_id}' not found.")
+
+    supplier = factory["suppliers"][supplier_id]
+
+    if supplier["status"] == "FAILED":
+        raise ValueError(f"Supplier '{supplier_id}' has already failed.")
+
+    supplier["status"] = "FAILED"
+
+    incident = {
+        "incident_id": f"SUP-INC-{len(factory.get('supplier_incidents', [])) + 1:03d}",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "incident_type": "SUPPLIER_FAILURE",
+        "supplier_id": supplier_id,
+        "supplier_name": supplier["name"],
+        "supplier_tier": supplier["tier"],
+        "status": "OPEN"
+    }
+
+    if "supplier_incidents" not in factory:
+        factory["supplier_incidents"] = []
+
+    factory["supplier_incidents"].append(incident)
+
+    return incident
 
 def get_factory_summary(factory: dict) -> dict:
     """

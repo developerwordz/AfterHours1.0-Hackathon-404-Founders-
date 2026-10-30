@@ -1,6 +1,4 @@
 
-from recovery import generate_recovery_plan
-from gemini_orchestrator import analyse_incident_with_gemini
 import streamlit as st
 import sys
 from pathlib import Path
@@ -9,9 +7,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from factory import (
     create_factory,
-    get_factory_summary,
-    simulate_machine_failure
+    simulate_machine_failure,
+    simulate_supplier_failure
 )
+
+from gemini_orchestrator import run_gemini_orchestrator
+from orchestrator import execute_approved_plan
+from ui.styling import apply_theme
+from ui.components import render_agent_timeline
+
 
 # --------------------------------------------------
 # PAGE CONFIGURATION
@@ -24,30 +28,33 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # --------------------------------------------------
 # STYLING
 # --------------------------------------------------
 
-from ui.styling import apply_theme
 apply_theme()
+
 
 # --------------------------------------------------
 # SESSION STATE
 # --------------------------------------------------
 
-if "factory" not in st.session_state:
-    st.session_state.factory = create_factory()
+defaults = {
+    "factory": create_factory(),
+    "latest_incident": None,
+    "recovery_report": None,
+    "gemini_analysis": None,
+    "agent_events": [],
+    "orchestration_time": None
+}
 
-if "latest_incident" not in st.session_state:
-    st.session_state.latest_incident = None
-
-if "recovery_report" not in st.session_state:
-    st.session_state.recovery_report = None
-
-if "gemini_analysis" not in st.session_state:
-    st.session_state.gemini_analysis = None
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 factory = st.session_state.factory
+
 
 # --------------------------------------------------
 # SIDEBAR
@@ -69,6 +76,7 @@ with st.sidebar:
     st.success("Backend Connected")
     st.caption("Gemini integration available")
 
+
 # --------------------------------------------------
 # HEADER
 # --------------------------------------------------
@@ -77,6 +85,7 @@ st.title("🏭 TEXRESQ")
 st.caption("AUTONOMOUS TEXTILE FACTORY | OPERATIONS CONTROL TOWER")
 
 st.divider()
+
 
 # --------------------------------------------------
 # FACTORY OVERVIEW
@@ -90,13 +99,13 @@ orders = factory["orders"]
 total_machines = len(machines)
 
 running_machines = sum(
-    1 for m in machines.values()
-    if m["status"] == "RUNNING"
+    1 for machine in machines.values()
+    if machine["status"] == "RUNNING"
 )
 
 active_orders = sum(
-    1 for o in orders.values()
-    if o["status"] in ["IN_PROGRESS", "QUEUED", "AT_RISK"]
+    1 for order in orders.values()
+    if order["status"] in ["IN_PROGRESS", "QUEUED", "AT_RISK"]
 )
 
 active_incidents = len(factory["incidents"])
@@ -109,6 +118,7 @@ c3.metric("Active Orders", active_orders)
 c4.metric("Active Incidents", active_incidents)
 
 st.divider()
+
 
 # --------------------------------------------------
 # MACHINE MONITORING
@@ -142,8 +152,181 @@ for column, (machine_id, machine) in zip(columns, machines.items()):
             )
 
             assigned = machine.get("assigned_order_id") or "None"
-
             st.caption(f"Assigned order: {assigned}")
+
+st.divider()
+
+
+# --------------------------------------------------
+# DYNAMIC SUPPLY CHAIN CONTROL TOWER
+# --------------------------------------------------
+
+st.divider()
+st.subheader("🚚 Dynamic Supply Chain Control Tower")
+
+suppliers = factory["suppliers"]
+
+tier_columns = st.columns(3)
+
+tier_config = [
+    (1, "PRIMARY SUPPLIER", "Lowest cost"),
+    (2, "BACKUP SUPPLIER", "Faster delivery"),
+    (3, "EMERGENCY SUPPLIER", "Rapid emergency sourcing"),
+]
+
+for column, (tier, tier_label, description) in zip(
+    tier_columns, tier_config
+):
+    supplier = next(
+        (
+            s for s in suppliers.values()
+            if s.get("tier") == tier
+        ),
+        None
+    )
+
+    with column:
+        with st.container(border=True):
+
+            st.markdown(f"### Tier {tier}")
+            st.caption(tier_label)
+
+            if supplier is None:
+                st.warning("No supplier configured.")
+                continue
+
+            st.markdown(f"**{supplier['name']}**")
+
+            if supplier["status"] == "ACTIVE":
+                st.success("ACTIVE")
+            else:
+                st.error(supplier["status"])
+
+            st.caption(description)
+
+            st.metric(
+                "Reliability",
+                f"{supplier['reliability_score']}%"
+            )
+
+            st.metric(
+                "Delivery Time",
+                f"{supplier['delivery_time_hrs']} hrs"
+            )
+
+            committed = supplier.get("committed_supply_kg", 0.0)
+            capacity = supplier.get("max_supply_kg", 0.0)
+            remaining = max(0, capacity - committed)
+
+            st.metric(
+                "Available Capacity",
+                f"{remaining:,.0f} kg"
+            )
+
+            st.caption(
+                f"Committed: {committed:,.0f} / {capacity:,.0f} kg"
+            )
+
+            st.progress(
+                min(committed / capacity, 1.0)
+                if capacity > 0 else 0.0
+            )
+
+            with st.expander("Supplier Pricing"):
+                for material_id, price in supplier["cost_per_kg"].items():
+                    st.write(f"**{material_id}:** ${price}/kg")
+
+                st.write(
+                    f"Rush fee: ${supplier['rush_fee_usd']:,.2f}"
+                )
+
+
+# --------------------------------------------------
+# SUPPLIER DISRUPTION SIMULATION
+# --------------------------------------------------
+
+st.markdown("### ⚠️ Supplier Disruption Simulation")
+
+st.caption(
+    "Simulate supplier failures to test automatic supplier "
+    "discovery and recovery-plan generation."
+)
+
+active_suppliers = {
+    supplier_id: supplier
+    for supplier_id, supplier in suppliers.items()
+    if supplier.get("status") == "ACTIVE"
+}
+
+if active_suppliers:
+
+    selected_supplier = st.selectbox(
+        "Select supplier to disrupt",
+        list(active_suppliers.keys()),
+        format_func=lambda supplier_id: (
+            f"{supplier_id} — {suppliers[supplier_id]['name']} "
+            f"(Tier {suppliers[supplier_id]['tier']})"
+        ),
+        key="supplier_failure_selection"
+    )
+
+    if st.button(
+        "🚨 Simulate Supplier Failure",
+        key="simulate_supplier_failure"
+    ):
+
+        try:
+            supplier_incident = simulate_supplier_failure(
+                factory,
+                selected_supplier
+            )
+
+            st.session_state.setdefault(
+                "supplier_incident_history", []
+            ).append(supplier_incident)
+
+            st.success(
+                f"{supplier_incident['supplier_name']} "
+                "has been marked as FAILED."
+            )
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Supplier failure simulation failed: {e}")
+
+else:
+    st.warning("All configured suppliers are currently unavailable.")
+
+
+# --------------------------------------------------
+# SUPPLIER INCIDENT HISTORY
+# --------------------------------------------------
+
+supplier_incidents = factory.get("supplier_incidents", [])
+
+if supplier_incidents:
+
+    st.markdown("### Supplier Disruption History")
+
+    for incident in reversed(supplier_incidents):
+
+        with st.container(border=True):
+
+            st.markdown(
+                f"**{incident['incident_id']} — "
+                f"{incident['supplier_name']}**"
+            )
+
+            st.error(
+                f"Tier {incident['supplier_tier']} | "
+                f"{incident['incident_type']} | "
+                f"{incident['status']}"
+            )
+
+            st.caption(
+                f"Timestamp: {incident['timestamp']}"
+            )
 
 st.divider()
 
@@ -167,8 +350,8 @@ with st.container(border=True):
     selected_machine = st.selectbox(
         "Select machine",
         machine_options,
-        format_func=lambda x: (
-            f"{x} — {factory['machines'][x]['name']}"
+        format_func=lambda machine_id: (
+            f"{machine_id} — {factory['machines'][machine_id]['name']}"
         )
     )
 
@@ -185,9 +368,16 @@ with st.container(border=True):
 
             st.session_state.latest_incident = incident
 
-            # Clear previous analysis and execution results
+            # Clear all previous analysis and execution results
             st.session_state.recovery_report = None
             st.session_state.gemini_analysis = None
+            st.session_state.agent_events = []
+            st.session_state.orchestration_time = None
+
+            # Clear previous approval results
+            for key in list(st.session_state.keys()):
+                if key.startswith("approved_"):
+                    del st.session_state[key]
 
             st.success(
                 f"Failure detected on {selected_machine}!"
@@ -195,7 +385,10 @@ with st.container(border=True):
 
             st.rerun()
 
-# Display latest incident
+
+# --------------------------------------------------
+# LATEST INCIDENT
+# --------------------------------------------------
 
 if st.session_state.latest_incident:
 
@@ -234,6 +427,7 @@ if st.session_state.latest_incident:
 
 st.divider()
 
+
 # --------------------------------------------------
 # AI RECOVERY CENTRE
 # --------------------------------------------------
@@ -260,37 +454,54 @@ else:
 
     if st.button("🧠 Analyse Recovery Options", type="primary"):
 
-        with st.spinner("Recovery Engine evaluating possible plans..."):
+        try:
+            with st.spinner("AI agents investigating factory disruption..."):
 
-            recovery_report = generate_recovery_plan(
-                factory,
-                incident
-            )
+                result = run_gemini_orchestrator(
+                    factory,
+                    incident
+                )
 
-            st.session_state.recovery_report = recovery_report
+                st.session_state.gemini_analysis = result["analysis"]
+                st.session_state.agent_events = result["events"]
+                st.session_state.recovery_report = result["recovery_report"]
+                st.session_state.orchestration_time = result["elapsed_seconds"]
 
-        with st.spinner("Gemini is analysing the recovery options..."):
+        except Exception as e:
+            st.error(f"AI orchestration failed: {e}")
 
-            gemini_analysis = analyse_incident_with_gemini(
-                factory,
-                incident,
-                recovery_report
-            )
+        st.rerun()
 
-            st.session_state.gemini_analysis = gemini_analysis
 
-    # Display Gemini analysis
+    # --------------------------------------------------
+    # GEMINI ANALYSIS
+    # --------------------------------------------------
 
-    if st.session_state.get("gemini_analysis"):
+    if st.session_state.gemini_analysis:
 
         st.markdown("### Gemini AI Analysis")
 
         with st.container(border=True):
             st.markdown(st.session_state.gemini_analysis)
 
-    # Display recovery plans
 
-    if st.session_state.get("recovery_report"):
+    # --------------------------------------------------
+    # ORCHESTRATION METRICS
+    # --------------------------------------------------
+
+    if st.session_state.orchestration_time is not None:
+
+        st.metric(
+            "Orchestration Time",
+            f"{st.session_state.orchestration_time} seconds"
+        )
+
+
+    # --------------------------------------------------
+    # RECOVERY PLAN COMPARISON
+    # --------------------------------------------------
+
+    if st.session_state.recovery_report:
 
         report = st.session_state.recovery_report
 
@@ -338,24 +549,28 @@ else:
                         f"**Evaluation:** {plan['evaluation_notes']}"
                     )
 
+    elif st.session_state.gemini_analysis:
+
+        st.warning(
+            "Gemini completed its analysis, but no recovery report was "
+            "returned. Check whether the orchestrator invoked "
+            "the recovery analysis tool."
+        )
+
+
 st.divider()
+
 
 # --------------------------------------------------
 # AGENT ACTIVITY TIMELINE
 # --------------------------------------------------
 
-from ui.components import render_agent_timeline
-
-render_agent_timeline([
-    "Machine Agent",
-    "Inventory Agent",
-    "Production Agent",
-    "Sourcing Agent",
-    "Recovery Engine",
-    "Gemini Orchestrator"
-] if st.session_state.get("recovery_report") else [])
+render_agent_timeline(
+    st.session_state.get("agent_events", [])
+)
 
 st.divider()
+
 
 # --------------------------------------------------
 # HUMAN APPROVAL & RECOVERY EXECUTION
@@ -385,9 +600,9 @@ if st.session_state.get("recovery_report"):
         selected_plan = st.selectbox(
             "Select recovery plan",
             feasible_plans,
-            format_func=lambda p: (
-                f"{p['plan_id']} — {p['name']} "
-                f"(${p['additional_cost_usd']:,.2f})"
+            format_func=lambda plan: (
+                f"{plan['plan_id']} — {plan['name']} "
+                f"(${plan['additional_cost_usd']:,.2f})"
             ),
             key=f"plan_{order_id}"
         )
@@ -416,8 +631,6 @@ if st.session_state.get("recovery_report"):
         ):
 
             try:
-                from orchestrator import execute_approved_plan
-
                 result = execute_approved_plan(
                     factory,
                     selected_plan
@@ -427,8 +640,15 @@ if st.session_state.get("recovery_report"):
 
                 st.success("Recovery action executed!")
 
+                st.rerun()
+
             except Exception as e:
                 st.error(f"Execution failed: {e}")
+
+
+        # --------------------------------------------------
+        # VERIFICATION RESULTS
+        # --------------------------------------------------
 
         if approval_key in st.session_state:
 
@@ -449,7 +669,11 @@ if st.session_state.get("recovery_report"):
             st.json(result["execution_receipt"])
 
 else:
-    st.info("Generate recovery plans before executing a recovery.")
+
+    st.info(
+        "Generate recovery plans before executing a recovery."
+    )
+
 
 # --------------------------------------------------
 # PRODUCTION ORDERS
@@ -478,7 +702,9 @@ for order_id, order in orders.items():
 
         col4.write(f"Status: **{order['status']}**")
 
+
 st.divider()
+
 
 # --------------------------------------------------
 # RAW MATERIAL INVENTORY
@@ -511,6 +737,7 @@ for column, (material_id, material) in zip(
             )
 
             st.caption(f"Material ID: {material_id}")
+
 
 # --------------------------------------------------
 # FOOTER
