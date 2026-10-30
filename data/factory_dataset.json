@@ -1,0 +1,154 @@
+{
+  "metadata": {
+    "dataset_name": "TexResQ Realistic Industrial Weaving Mill Dataset v2.0",
+    "facility_location": "Surat-Navsari Textile Corridor, Gujarat, India",
+    "currency": "USD",
+    "shift_horizon_hrs": 24.0
+  },
+  "machines": {
+    "M1": {
+      "id": "M1",
+      "name": "High-Speed Air-Jet Loom #1 (Picanol OmniPlus-i)",
+      "status": "RUNNING",
+      "capacity_m_per_hr": 60.0,
+      "supported_fabrics": ["cotton_twill", "poly_blend"],
+      "operating_cost_per_hr": 25.0,
+      "maintenance_duration_hrs": 8.0,
+      "required_spare_part": "bearing_set",
+      "assigned_order_id": "ORD-101"
+    },
+    "M2": {
+      "id": "M2",
+      "name": "Versatile Rapier Loom #2 (Itema R9500)",
+      "status": "IDLE",
+      "capacity_m_per_hr": 45.0,
+      "supported_fabrics": ["cotton_twill", "denim_heavy", "poly_blend"],
+      "operating_cost_per_hr": 20.0,
+      "maintenance_duration_hrs": 6.0,
+      "required_spare_part": "rapier_gripper",
+      "assigned_order_id": null
+    },
+    "M3": {
+      "id": "M3",
+      "name": "Heavy-Duty Projectile Loom #3 (Sulzer P7300HP)",
+      "status": "RUNNING",
+      "capacity_m_per_hr": 35.0,
+      "supported_fabrics": ["denim_heavy"],
+      "operating_cost_per_hr": 30.0,
+      "maintenance_duration_hrs": 10.0,
+      "required_spare_part": "torsion_bar",
+      "assigned_order_id": "ORD-102"
+    }
+  },
+  "orders": {
+    "ORD-101": {
+      "id": "ORD-101",
+      "client": "Zara Global",
+      "fabric_type": "cotton_twill",
+      "total_quantity_m": 900.0,
+      "completed_quantity_m": 300.0,
+      "remaining_quantity_m": 600.0,
+      "raw_material_id": "RM-COTTON",
+      "raw_material_per_m": 1.0,
+      "deadline_hrs": 14.0,
+      "assigned_machine_id": "M1",
+      "status": "IN_PROGRESS",
+      "penalty_per_hr_late": 500.0
+    },
+    "ORD-102": {
+      "id": "ORD-102",
+      "client": "Levi Strauss",
+      "fabric_type": "denim_heavy",
+      "total_quantity_m": 700.0,
+      "completed_quantity_m": 350.0,
+      "remaining_quantity_m": 350.0,
+      "raw_material_id": "RM-INDIGO",
+      "raw_material_per_m": 1.2,
+      "deadline_hrs": 16.0,
+      "assigned_machine_id": "M3",
+      "status": "IN_PROGRESS",
+      "penalty_per_hr_late": 400.0
+    },
+    "ORD-103": {
+      "id": "ORD-103",
+      "client": "Uniqlo Asia",
+      "fabric_type": "poly_blend",
+      "total_quantity_m": 500.0,
+      "completed_quantity_m": 0.0,
+      "remaining_quantity_m": 500.0,
+      "raw_material_id": "RM-POLY",
+      "raw_material_per_m": 0.8,
+      "deadline_hrs": 9.0,
+      "assigned_machine_id": null,
+      "status": "QUEUED",
+      "penalty_per_hr_late": 350.0
+    }
+  },
+  "raw_materials": {
+    "RM-COTTON": {
+      "id": "RM-COTTON",
+      "name": "40s Combed Compact Cotton Yarn",
+      "stock_kg": 400.0,
+      "reserved_kg": 0.0
+    },
+    "RM-INDIGO": {
+      "id": "RM-INDIGO",
+      "name": "7s Ring-Spun Indigo Denim Yarn",
+      "stock_kg": 600.0,
+      "reserved_kg": 0.0
+    },
+    "RM-POLY": {
+      "id": "RM-POLY",
+      "name": "150D Textured Polyester Filament",
+      "stock_kg": 500.0,
+      "reserved_kg": 0.0
+    }
+  },
+  "spare_parts": {
+    "bearing_set": {
+      "id": "bearing_set",
+      "name": "High-Speed Main Drive Rotor Bearing",
+      "in_stock": 1,
+      "cost_usd": 180.0
+    },
+    "rapier_gripper": {
+      "id": "rapier_gripper",
+      "name": "Carbon-Composite Weft Rapier Gripper",
+      "in_stock": 2,
+      "cost_usd": 120.0
+    },
+    "torsion_bar": {
+      "id": "torsion_bar",
+      "name": "Heavy-Duty Picking Torsion Bar",
+      "in_stock": 0,
+      "cost_usd": 450.0
+    }
+  },
+  "suppliers": {
+    "SUP-PRIMARY": {
+      "id": "SUP-PRIMARY",
+      "name": "Gujarat Spinners (Primary)",
+      "type": "PRIMARY",
+      "delivery_time_hrs": 12.0,
+      "cost_per_kg": {
+        "RM-COTTON": 3.5,
+        "RM-INDIGO": 4.0,
+        "RM-POLY": 2.8
+      },
+      "rush_fee_usd": 50.0
+    },
+    "SUP-BACKUP": {
+      "id": "SUP-BACKUP",
+      "name": "Surat Express Mills (Backup)",
+      "type": "BACKUP",
+      "delivery_time_hrs": 3.0,
+      "cost_per_kg": {
+        "RM-COTTON": 6.0,
+        "RM-INDIGO": 7.0,
+        "RM-POLY": 5.0
+      },
+      "rush_fee_usd": 200.0
+    }
+  },
+  "incidents": []
+}
