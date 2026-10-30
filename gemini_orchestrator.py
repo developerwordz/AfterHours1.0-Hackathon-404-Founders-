@@ -68,6 +68,38 @@ def analyse_recovery_options() -> str:
     return json.dumps(recovery_report, indent=2)
 
 
+def analyse_incident_with_gemini(factory, incident, recovery_report):
+
+    prompt = f"""
+    You are TexResQ, an AI textile factory operations orchestrator.
+
+    Analyse this factory disruption using the supplied Python engine results.
+
+    INCIDENT:
+    {json.dumps(incident, indent=2)}
+
+    RECOVERY ANALYSIS:
+    {json.dumps(recovery_report, indent=2)}
+
+    Explain:
+    1. Which machine failed and which orders are affected.
+    2. What recovery options were evaluated.
+    3. Which plan is recommended for each affected order.
+    4. Why the recommended plan was selected.
+    5. Whether the deadline can be met.
+    6. The additional cost.
+
+    Use only the supplied data. Do not invent values.
+    Do not execute any recovery plan.
+    """
+
+    response = client.models.generate_content(
+        model="gemini-3.5-flash-lite",
+        contents=prompt
+    )
+
+    return response.text
+
 def run_gemini_orchestrator():
 
     global factory, latest_incident
