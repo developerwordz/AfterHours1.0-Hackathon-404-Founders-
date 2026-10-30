@@ -1,5 +1,5 @@
 """
-factory.py — Factory simulation and state management for TexResQ.
+factory.py — Factory simulation and multi-disruption state management for TexResQ (v2.0).
 Owner: Ruhaan (ruhaan/backend)
 """
 
@@ -10,10 +10,7 @@ from datetime import datetime
 def create_factory() -> dict:
     """
     Creates and returns the initial simulated textile factory state.
-
-    Returns:
-        dict: Complete factory state containing machines, orders,
-              raw_materials, spare_parts, suppliers, and incident_log.
+    Preserves the v1.0 schema completely.
     """
     return {
         "machines": {
@@ -21,7 +18,7 @@ def create_factory() -> dict:
                 "id": "M1",
                 "name": "High-Speed Air-Jet Loom #1",
                 "status": "RUNNING",          # RUNNING, IDLE, FAILED, MAINTENANCE
-                "capacity_m_per_hr": 60.0,    # Meters of fabric produced per hour
+                "capacity_m_per_hr": 60.0,
                 "supported_fabrics": ["cotton_twill", "poly_blend"],
                 "operating_cost_per_hr": 25.0,
                 "maintenance_duration_hrs": 8.0,
@@ -44,7 +41,7 @@ def create_factory() -> dict:
                 "name": "Heavy-Duty Projectile Loom #3",
                 "status": "RUNNING",
                 "capacity_m_per_hr": 35.0,
-                "supported_fabrics": ["denim_heavy"],  # Cannot weave cotton_twill!
+                "supported_fabrics": ["denim_heavy"],
                 "operating_cost_per_hr": 30.0,
                 "maintenance_duration_hrs": 10.0,
                 "required_spare_part": "torsion_bar",
@@ -60,10 +57,10 @@ def create_factory() -> dict:
                 "completed_quantity_m": 300.0,
                 "remaining_quantity_m": 600.0,
                 "raw_material_id": "RM-COTTON",
-                "raw_material_per_m": 1.0,    # 1 kg of yarn per 1m of fabric
-                "deadline_hrs": 14.0,         # Due in 14 hours
+                "raw_material_per_m": 1.0,
+                "deadline_hrs": 14.0,
                 "assigned_machine_id": "M1",
-                "status": "IN_PROGRESS",      # IN_PROGRESS, AT_RISK, REASSIGNED, DELAYED, COMPLETED
+                "status": "IN_PROGRESS",
                 "penalty_per_hr_late": 500.0,
             },
             "ORD-102": {
@@ -89,17 +86,15 @@ def create_factory() -> dict:
                 "remaining_quantity_m": 500.0,
                 "raw_material_id": "RM-POLY",
                 "raw_material_per_m": 0.8,
-                "deadline_hrs": 9.0,          # Tight deadline! (Used to test tight/unsaveable scenarios)
+                "deadline_hrs": 9.0,
                 "assigned_machine_id": None,
                 "status": "QUEUED",
                 "penalty_per_hr_late": 350.0,
             },
         },
         "raw_materials": {
-            # Note: ORD-101 needs 600kg of RM-COTTON, but we only have 400kg in stock!
-            # This forces recovery plans to also check raw material procurement.
             "RM-COTTON": {"id": "RM-COTTON", "name": "Combed Cotton Yarn", "stock_kg": 400.0, "reserved_kg": 0.0},
-            "RM-INDIGO": {"id": "RM-INDIGO", "name": "Indigo Denim Yarn", "stock_kg": 600.0, "reserved_kg": 420.0},
+            "RM-INDIGO": {"id": "RM-INDIGO", "name": "Indigo Denim Yarn", "stock_kg": 600.0, "reserved_kg": 0.0},
             "RM-POLY":   {"id": "RM-POLY",   "name": "Polyester Filament", "stock_kg": 500.0, "reserved_kg": 0.0},
         },
         "spare_parts": {
@@ -112,7 +107,7 @@ def create_factory() -> dict:
                 "id": "SUP-PRIMARY",
                 "name": "Gujarat Spinners (Primary)",
                 "type": "PRIMARY",
-                "delivery_time_hrs": 12.0,    # Cheaper, but slower delivery
+                "delivery_time_hrs": 12.0,
                 "cost_per_kg": {"RM-COTTON": 3.5, "RM-INDIGO": 4.0, "RM-POLY": 2.8},
                 "rush_fee_usd": 50.0,
             },
@@ -120,7 +115,7 @@ def create_factory() -> dict:
                 "id": "SUP-BACKUP",
                 "name": "Surat Express Mills (Backup)",
                 "type": "BACKUP",
-                "delivery_time_hrs": 3.0,     # Expensive, but fast express delivery
+                "delivery_time_hrs": 3.0,
                 "cost_per_kg": {"RM-COTTON": 6.0, "RM-INDIGO": 7.0, "RM-POLY": 5.0},
                 "rush_fee_usd": 200.0,
             },
@@ -130,30 +125,15 @@ def create_factory() -> dict:
 
 
 def simulate_machine_failure(factory: dict, machine_id: str) -> dict:
-    """
-    Simulates a breakdown on the specified machine, updates factory state,
-    and identifies all affected production orders.
-
-    Args:
-        factory (dict): The current factory state dictionary.
-        machine_id (str): ID of the machine to fail (e.g., 'M1').
-
-    Returns:
-        dict: An incident report dictionary containing the failed machine details,
-              affected orders, and updated factory summary.
-
-    Raises:
-        ValueError: If machine_id does not exist in factory['machines'].
-    """
+    """Scenario 1: Simulates a breakdown on a single machine (M1, M2, or M3)."""
     if machine_id not in factory["machines"]:
-        raise ValueError(f"Machine '{machine_id}' not found in factory. Valid IDs: {list(factory['machines'].keys())}")
+        raise ValueError(f"Machine '{machine_id}' not found. Valid IDs: {list(factory['machines'].keys())}")
 
     machine = factory["machines"][machine_id]
     machine["status"] = "FAILED"
 
-    # Find all orders assigned to this failed machine
     affected_orders = []
-    for order_id, order in factory["orders"].items():
+    for order in factory["orders"].values():
         if order["assigned_machine_id"] == machine_id and order["status"] != "COMPLETED":
             order["status"] = "AT_RISK"
             affected_orders.append(deepcopy(order))
@@ -163,6 +143,7 @@ def simulate_machine_failure(factory: dict, machine_id: str) -> dict:
 
     incident = {
         "incident_id": f"INC-{len(factory['incidents']) + 1:03d}",
+        "type": "MACHINE_FAILURE",
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "machine_id": machine_id,
         "machine_name": machine["name"],
@@ -173,22 +154,130 @@ def simulate_machine_failure(factory: dict, machine_id: str) -> dict:
         "affected_order_ids": [o["id"] for o in affected_orders],
         "affected_orders": affected_orders,
     }
-
     factory["incidents"].append(incident)
     return incident
 
 
+def simulate_machine_maintenance(factory: dict, machine_id: str, duration_hrs: float = None) -> dict:
+    """Scenario 5: Places a machine into scheduled/unscheduled temporary maintenance."""
+    if machine_id not in factory["machines"]:
+        raise ValueError(f"Machine '{machine_id}' not found.")
+
+    machine = factory["machines"][machine_id]
+    machine["status"] = "MAINTENANCE"
+    if duration_hrs is not None:
+        machine["maintenance_duration_hrs"] = float(duration_hrs)
+
+    affected_orders = []
+    for order in factory["orders"].values():
+        if order["assigned_machine_id"] == machine_id and order["status"] != "COMPLETED":
+            order["status"] = "AT_RISK"
+            affected_orders.append(deepcopy(order))
+
+    spare_part_id = machine["required_spare_part"]
+    spare_part_info = factory["spare_parts"].get(spare_part_id, {})
+
+    incident = {
+        "incident_id": f"INC-{len(factory['incidents']) + 1:03d}",
+        "type": "MACHINE_MAINTENANCE",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "machine_id": machine_id,
+        "machine_name": machine["name"],
+        "new_status": "MAINTENANCE",
+        "estimated_repair_hrs": machine["maintenance_duration_hrs"],
+        "required_spare_part": spare_part_id,
+        "spare_part_in_stock": spare_part_info.get("in_stock", 0) > 0,
+        "affected_order_ids": [o["id"] for o in affected_orders],
+        "affected_orders": affected_orders,
+    }
+    factory["incidents"].append(incident)
+    return incident
+
+
+def simulate_raw_material_shortage(factory: dict, material_id: str, new_stock_kg: float = 0.0) -> dict:
+    """Scenario 2: Reduces raw material stock (e.g. damaged batch or inventory drop) and flags affected orders."""
+    if material_id not in factory["raw_materials"]:
+        raise ValueError(f"Raw material '{material_id}' not found. Valid IDs: {list(factory['raw_materials'].keys())}")
+
+    rm = factory["raw_materials"][material_id]
+    old_stock = rm["stock_kg"]
+    rm["stock_kg"] = max(0.0, float(new_stock_kg))
+    available = max(0.0, rm["stock_kg"] - rm["reserved_kg"])
+
+    affected_orders = []
+    affected_machines = []
+    for order in factory["orders"].values():
+        if order["raw_material_id"] == material_id and order["status"] != "COMPLETED":
+            req_kg = order["remaining_quantity_m"] * order.get("raw_material_per_m", 1.0)
+            if req_kg > available:
+                order["status"] = "AT_RISK"
+                affected_orders.append(deepcopy(order))
+                if order["assigned_machine_id"]:
+                    affected_machines.append(order["assigned_machine_id"])
+
+    incident = {
+        "incident_id": f"INC-{len(factory['incidents']) + 1:03d}",
+        "type": "RAW_MATERIAL_SHORTAGE",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "material_id": material_id,
+        "previous_stock_kg": old_stock,
+        "new_stock_kg": rm["stock_kg"],
+        "machine_id": affected_machines[0] if affected_machines else None,
+        "affected_machine_ids": affected_machines,
+        "affected_order_ids": [o["id"] for o in affected_orders],
+        "affected_orders": affected_orders,
+    }
+    factory["incidents"].append(incident)
+    return incident
+
+
+def simulate_supplier_delay(factory: dict, supplier_id: str, extra_delay_hrs: float) -> dict:
+    """Scenario 3: Delays a supplier's delivery time and identifies orders with material shortfalls."""
+    if supplier_id not in factory["suppliers"]:
+        raise ValueError(f"Supplier '{supplier_id}' not found. Valid IDs: {list(factory['suppliers'].keys())}")
+
+    supplier = factory["suppliers"][supplier_id]
+    old_eta = supplier["delivery_time_hrs"]
+    supplier["delivery_time_hrs"] = round(old_eta + float(extra_delay_hrs), 2)
+
+    affected_orders = []
+    for order in factory["orders"].values():
+        if order["status"] != "COMPLETED":
+            rm = factory["raw_materials"][order["raw_material_id"]]
+            avail_kg = max(0.0, rm["stock_kg"] - rm["reserved_kg"])
+            req_kg = order["remaining_quantity_m"] * order.get("raw_material_per_m", 1.0)
+            if req_kg > avail_kg:
+                order["status"] = "AT_RISK"
+                affected_orders.append(deepcopy(order))
+
+    incident = {
+        "incident_id": f"INC-{len(factory['incidents']) + 1:03d}",
+        "type": "SUPPLIER_DELAY",
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "supplier_id": supplier_id,
+        "supplier_name": supplier["name"],
+        "previous_delivery_hrs": old_eta,
+        "new_delivery_hrs": supplier["delivery_time_hrs"],
+        "machine_id": affected_orders[0]["assigned_machine_id"] if affected_orders else None,
+        "affected_order_ids": [o["id"] for o in affected_orders],
+        "affected_orders": affected_orders,
+    }
+    factory["incidents"].append(incident)
+    return incident
+
+
+def simulate_multiple_failures(factory: dict, machine_ids: list) -> list:
+    """Scenario 4: Fails multiple machines simultaneously and returns the list of generated incidents."""
+    if not machine_ids:
+        raise ValueError("machine_ids list cannot be empty.")
+    incidents = []
+    for m_id in machine_ids:
+        incidents.append(simulate_machine_failure(factory, m_id))
+    return incidents
+
+
 def get_factory_summary(factory: dict) -> dict:
-    """
-    Generates a clean, high-level summary of the current factory state
-    for AI agents and dashboard rendering.
-
-    Args:
-        factory (dict): The current factory state dictionary.
-
-    Returns:
-        dict: Summary counts and status lists for machines, orders, and stock.
-    """
+    """Generates a high-level summary of the current factory state."""
     machines = factory["machines"]
     orders = factory["orders"]
 
@@ -217,13 +306,3 @@ def get_factory_summary(factory: dict) -> dict:
         },
         "active_incidents_count": len(factory["incidents"]),
     }
-
-
-if __name__ == "__main__":
-    print("=== MILESTONE 1 TEST: factory.py ===")
-    f = create_factory()
-    print("Initial Summary:", get_factory_summary(f))
-    print("\nSimulating failure on M1...")
-    inc = simulate_machine_failure(f, "M1")
-    print("Incident Generated:", inc["incident_id"], "| Affected Orders:", inc["affected_order_ids"])
-    print("Updated Summary:", get_factory_summary(f))
