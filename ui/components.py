@@ -2,56 +2,43 @@
 import streamlit as st
 
 
-def render_agent_timeline(agents_completed=None):
+def render_agent_timeline(events=None):
 
-    agents = [
-        (
-            "Machine Agent",
-            "Detected machine failure and assessed repair requirements."
-        ),
-        (
-            "Inventory Agent",
-            "Checked raw material stock and spare part availability."
-        ),
-        (
-            "Production Agent",
-            "Identified affected orders and evaluated deadlines."
-        ),
-        (
-            "Sourcing Agent",
-            "Compared primary and backup supplier options."
-        ),
-        (
-            "Recovery Engine",
-            "Generated and ranked recovery plans."
-        ),
-        (
-            "Gemini Orchestrator",
-            "Analysed recovery options and explained its recommendation."
-        ),
-        (
-            "Verification Agent",
-            "Verified the executed recovery against factory constraints."
+    st.markdown("### 🧠 Agent Activity")
+
+    if not events:
+        st.info(
+            "No agent activity recorded yet. "
+            "Run AI Recovery Analysis to activate the agents."
         )
-    ]
+        return
 
-    completed = agents_completed or []
+    st.caption(
+        f"{len(events)} agent/tool operations recorded"
+    )
 
-    st.markdown("### Agent Activity")
+    for index, event in enumerate(events, start=1):
 
-    for name, description in agents:
-
-        is_completed = name in completed
-
-        status = "🟢 Completed" if is_completed else "⚪ Waiting"
+        agent_name = event.get("agent", "Unknown Agent")
+        status = event.get("status", "Unknown")
+        result = event.get("result", {})
 
         with st.container(border=True):
 
             col1, col2 = st.columns([3, 1])
 
             with col1:
-                st.markdown(f"**{name}**")
-                st.caption(description)
+                st.markdown(f"**{index}. {agent_name}**")
 
             with col2:
-                st.markdown(status)
+                if status == "Completed":
+                    st.success(status)
+                else:
+                    st.warning(status)
+
+            with st.expander("View agent findings"):
+
+                if isinstance(result, (dict, list)):
+                    st.json(result)
+                else:
+                    st.write(result)

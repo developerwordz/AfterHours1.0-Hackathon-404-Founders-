@@ -360,6 +360,440 @@ def generate_recovery_plan(factory: dict, incident: dict) -> dict:
 
     return recovery_report
 
+def generate_supplier_recovery_plan(factory: dict, incident: dict) -> dict:
+    """
+    Generates and ranks alternative supplier plans after a supplier failure.
+
+    Does not execute procurement or mutate factory state.
+    """
+
+    if incident.get("incident_type") != "SUPPLIER_FAILURE":
+        raise ValueError("Expected a SUPPLIER_FAILURE incident.")
+
+    failed_supplier_id = incident["supplier_id"]
+
+    failed_supplier = factory["suppliers"].get(failed_supplier_id)
+
+    if failed_supplier is None:
+        raise ValueError(f"Supplier {failed_supplier_id} does not exist.")
+
+    if failed_supplier.get("status") != "FAILED":
+        raise ValueError(
+            f"Supplier {failed_supplier_id} is not marked as FAILED."
+        )
+
+    affected_materials = list(
+        failed_supplier.get("cost_per_kg", {}).keys()
+    )
+
+    report = {
+        "incident_id": incident["incident_id"],
+        "incident_type": "SUPPLIER_FAILURE",
+        "failed_supplier": {
+            "supplier_id": failed_supplier_id,
+            "name": failed_supplier["name"],
+            "tier": failed_supplier.get("tier"),
+        },
+        "affected_materials": affected_materials,
+        "orders_recovery": {},
+    }
+
+    for order_id, order in factory["orders"].items():
+
+        material_id = order["raw_material_id"]
+
+        # Only inspect orders using materials supplied by the failed supplier.
+        if material_id not in affected_materials:
+            continue
+
+        if order.get("remaining_quantity_m", 0) <= 0:
+            continue
+
+        mat_info = _calculate_material_shortfall(factory, order)
+
+        available_kg = mat_info["available_kg"]
+        shortfall_kg = mat_info["shortfall_kg"]
+
+        # Determine how long existing stock can support production.
+        consumption_rate = order.get("raw_material_per_m", 1.0)
+
+        assigned_machine_id = order.get("assigned_machine_id")
+        machine = factory["machines"].get(assigned_machine_id)
+
+        stock_coverage_hrs = None
+
+        if machine and machine.get("capacity_m_per_hr", 0) > 0:
+            if consumption_rate > 0:
+                stock_coverage_hrs = round(
+                    available_kg
+                    / consumption_rate
+                    / machine["capacity_m_per_hr"],
+                    2
+                )
+
+        candidate_plans = []
+
+        # If stock is sufficient, no immediate procurement is necessary.
+        if shortfall_kg == 0:
+            report["orders_recovery"][order_id] = {
+                "order_id": order_id,
+                "client": order["client"],
+                "material_id": material_id,
+                "remaining_quantity_m": order["remaining_quantity_m"],
+                "available_stock_kg": available_kg,
+                "required_kg": mat_info["required_kg"],
+                "shortfall_kg": 0,
+                "stock_coverage_hrs": stock_coverage_hrs,
+                "procurement_required": False,
+                "recommended_plan": None,
+                "ranked_plans": [],
+                "honest_assessment": (
+                    f"INVENTORY PROTECTION: {order_id} has sufficient "
+                    f"{material_id} in stock. No immediate procurement "
+                    f"is required."
+                ),
+            }
+            continue
+
+        # Evaluate all active suppliers supporting this material.
+        for supplier_id, supplier in factory["suppliers"].items():
+
+            if supplier_id == failed_supplier_id:
+                continue
+
+            if supplier.get("status", "ACTIVE") != "ACTIVE":
+                continue
+
+            if material_id not in supplier.get("cost_per_kg", {}):
+                continue
+
+            max_supply = supplier.get("max_supply_kg", float("inf"))
+            committed = supplier.get("committed_supply_kg", 0.0)
+
+            remaining_capacity = max(0.0, max_supply - committed)
+
+            feasible = shortfall_kg <= remaining_capacity
+
+            delivery_hrs = supplier["delivery_time_hrs"]
+
+            procurement_cost = round(
+                shortfall_kg * supplier["cost_per_kg"][material_id]
+                + supplier.get("rush_fee_usd", 0.0),
+                2
+            )
+
+            material_wait_hrs = None
+            protects_stock = None
+
+            if stock_coverage_hrs is not None:
+                material_wait_hrs = round(
+                    max(0.0, delivery_hrs - stock_coverage_hrs),
+                    2
+                )
+
+                protects_stock = delivery_hrs <= stock_coverage_hrs
+
+            plan = {
+                "plan_id": (
+                    f"SUP-PLAN-{order_id}-{len(candidate_plans) + 1:02d}"
+                ),
+                "strategy_type": "SUPPLIER_SWITCH",
+                "order_id": order_id,
+                "supplier_id": supplier_id,
+                "supplier_name": supplier["name"],
+                "supplier_tier": supplier.get("tier"),
+                "material_id": material_id,
+                "quantity_kg": shortfall_kg,
+                "delivery_time_hrs": delivery_hrs,
+                "reliability_score": supplier.get("reliability_score"),
+                "remaining_capacity_kg": round(remaining_capacity, 2),
+                "procurement_cost_usd": procurement_cost,
+                "stock_coverage_hrs": stock_coverage_hrs,
+                "material_wait_hrs": material_wait_hrs,
+                "protects_stock": protects_stock,
+                "feasible": feasible,
+                "actions": [
+                    f"Switch procurement to {supplier['name']}",
+                    f"Order {shortfall_kg}kg of {material_id}",
+                ],
+            }
+
+            if not feasible:
+                plan["evaluation_notes"] = (
+                    f"Insufficient supplier capacity. "
+                    f"Required: {shortfall_kg}kg; "
+                    f"available: {remaining_capacity}kg."
+                )
+            elif protects_stock is True:
+                plan["evaluation_notes"] = (
+                    "Supplier delivery is expected before current "
+                    "inventory runs out."
+                )
+            elif protects_stock is False:
+                plan["evaluation_notes"] = (
+                    "Current inventory may run out before delivery."
+                )
+            else:
+                plan["evaluation_notes"] = (
+                    "Supplier capacity is sufficient. "
+                    "Stock coverage could not be estimated."
+                )
+
+            candidate_plans.append(plan)
+
+        # Rank feasible plans first, then stock protection, cost,
+        # delivery speed and reliability.
+        candidate_plans.sort(
+            key=lambda plan: (
+                not plan["feasible"],
+                plan["protects_stock"] is False,
+                plan["protects_stock"] is None,
+                plan["procurement_cost_usd"],
+                plan["delivery_time_hrs"],
+                -(plan["reliability_score"] or 0),
+            )
+        )
+
+        feasible_plans = [
+            plan for plan in candidate_plans
+            if plan["feasible"]
+        ]
+
+        recommended = feasible_plans[0] if feasible_plans else None
+
+        if recommended is None:
+            assessment = (
+                f"CRITICAL: No active alternative supplier has "
+                f"enough capacity to supply the {shortfall_kg}kg "
+                f"shortfall for {order_id}."
+            )
+        elif recommended["protects_stock"] is True:
+            assessment = (
+                f"RECOVERY OPTION FOUND: {recommended['supplier_name']} "
+                f"can supply {shortfall_kg}kg of {material_id} before "
+                f"current inventory runs out. Estimated procurement "
+                f"cost: ${recommended['procurement_cost_usd']}."
+            )
+        elif recommended["protects_stock"] is False:
+            assessment = (
+                f"RECOVERY OPTION FOUND WITH RISK: "
+                f"{recommended['supplier_name']} has sufficient capacity, "
+                f"but delivery may arrive after current inventory runs out."
+            )
+        else:
+            assessment = (
+                f"RECOVERY OPTION FOUND: {recommended['supplier_name']} "
+                f"has sufficient capacity. Stock coverage could not "
+                f"be estimated."
+            )
+
+        report["orders_recovery"][order_id] = {
+            "order_id": order_id,
+            "client": order["client"],
+            "material_id": material_id,
+            "remaining_quantity_m": order["remaining_quantity_m"],
+            "available_stock_kg": available_kg,
+            "required_kg": mat_info["required_kg"],
+            "shortfall_kg": shortfall_kg,
+            "stock_coverage_hrs": stock_coverage_hrs,
+            "procurement_required": True,
+            "recommended_plan": recommended,
+            "ranked_plans": candidate_plans,
+            "honest_assessment": assessment,
+        }
+
+    return report
+
+def apply_supplier_recovery_plan(
+    factory: dict,
+    plan: dict,
+    incident: dict
+) -> dict:
+    """
+    Executes an approved supplier recovery plan.
+
+    Revalidates supplier status, material shortfall and capacity
+    before changing factory state.
+    """
+
+    if not plan.get("feasible", False):
+        raise ValueError("Cannot execute an infeasible supplier plan.")
+
+    if plan.get("strategy_type") != "SUPPLIER_SWITCH":
+        raise ValueError("Invalid supplier recovery strategy.")
+
+    order_id = plan["order_id"]
+    supplier_id = plan["supplier_id"]
+    material_id = plan["material_id"]
+
+    order = factory["orders"][order_id]
+    supplier = factory["suppliers"].get(supplier_id)
+
+    failed_supplier_id = incident["supplier_id"]
+    failed_supplier = factory["suppliers"].get(failed_supplier_id)
+
+    if not failed_supplier or failed_supplier.get("status") != "FAILED":
+        raise ValueError("Original supplier is no longer marked FAILED.")
+
+    if supplier_id == failed_supplier_id:
+        raise ValueError("Cannot switch to the failed supplier.")
+
+    if not supplier or supplier.get("status", "ACTIVE") != "ACTIVE":
+        raise ValueError(f"Replacement supplier {supplier_id} is unavailable.")
+
+    if material_id not in supplier.get("cost_per_kg", {}):
+        raise ValueError(f"{supplier_id} cannot supply {material_id}.")
+
+    # Prevent accidental duplicate execution.
+    existing_recovery = order.get("supplier_recovery", {})
+
+    if existing_recovery.get("applied_plan_id") == plan["plan_id"]:
+        raise ValueError("This supplier recovery plan has already been executed.")
+
+    # Recalculate the shortfall using current factory state.
+    mat_info = _calculate_material_shortfall(factory, order)
+    quantity = mat_info["shortfall_kg"]
+
+    if quantity <= 0:
+        raise ValueError("No material shortfall remains. Procurement is unnecessary.")
+
+    if material_id != mat_info["raw_material_id"]:
+        raise ValueError("Plan material does not match the order material.")
+
+    if abs(quantity - plan["quantity_kg"]) > 0.01:
+        raise ValueError(
+            "Material shortfall has changed since planning. "
+            "Generate a fresh recovery plan."
+        )
+
+    # Revalidate remaining supplier capacity.
+    max_supply = supplier.get("max_supply_kg", float("inf"))
+    committed = supplier.get("committed_supply_kg", 0.0)
+    remaining_capacity = max(0.0, max_supply - committed)
+
+    if quantity > remaining_capacity:
+        raise ValueError(
+            f"Insufficient supplier capacity. "
+            f"Required: {quantity}kg; available: {remaining_capacity}kg."
+        )
+
+    # Recalculate cost from current supplier data.
+    procurement_cost = round(
+        quantity * supplier["cost_per_kg"][material_id]
+        + supplier.get("rush_fee_usd", 0.0),
+        2
+    )
+
+    # All validation passed. Apply state changes.
+    material = factory["raw_materials"][material_id]
+
+    material["stock_kg"] += quantity
+    material["reserved_kg"] += mat_info["required_kg"]
+
+    supplier["committed_supply_kg"] = committed + quantity
+
+    receipt = {
+        "applied_plan_id": plan["plan_id"],
+        "incident_id": incident["incident_id"],
+        "order_id": order_id,
+        "failed_supplier_id": failed_supplier_id,
+        "replacement_supplier_id": supplier_id,
+        "replacement_supplier_name": supplier["name"],
+        "material_id": material_id,
+        "quantity_procured_kg": quantity,
+        "quantity_reserved_kg": mat_info["required_kg"],
+        "procurement_cost_usd": procurement_cost,
+        "supplier_committed_after_kg": supplier["committed_supply_kg"],
+        "status": "EXECUTED"
+    }
+
+    order["supplier_recovery"] = receipt
+
+    factory.setdefault("supplier_recovery_history", []).append(receipt.copy())
+
+    return {
+        "success": True,
+        "execution_receipt": receipt,
+        "state_changes": [
+            f"Procured {quantity}kg of {material_id} from {supplier['name']}.",
+            f"Reserved {mat_info['required_kg']}kg for {order_id}.",
+            f"Updated {supplier['name']} committed supply to "
+            f"{supplier['committed_supply_kg']}kg."
+        ]
+    }
+
+
+def verify_supplier_recovery(factory: dict, order_id: str) -> dict:
+    """
+    Verifies that an approved supplier recovery was executed correctly.
+    """
+
+    order = factory["orders"][order_id]
+    recovery = order.get("supplier_recovery")
+
+    if not recovery:
+        return {
+            "order_id": order_id,
+            "verified": False,
+            "summary": "No supplier recovery execution record found."
+        }
+
+    supplier = factory["suppliers"].get(
+        recovery["replacement_supplier_id"]
+    )
+
+    material = factory["raw_materials"].get(
+        recovery["material_id"]
+    )
+
+    supplier_valid = (
+        supplier is not None
+        and supplier.get("status", "ACTIVE") == "ACTIVE"
+    )
+
+    commitment_valid = (
+        supplier is not None
+        and supplier.get("committed_supply_kg", 0.0)
+        >= recovery["supplier_committed_after_kg"]
+    )
+
+    material_reserved = (
+        material is not None
+        and material["reserved_kg"] >= recovery["quantity_reserved_kg"]
+    )
+
+    material_stock_valid = (
+        material is not None
+        and material["stock_kg"] >= material["reserved_kg"]
+    )
+
+    verified = all([
+        supplier_valid,
+        commitment_valid,
+        material_reserved,
+        material_stock_valid
+    ])
+
+    return {
+        "order_id": order_id,
+        "verified": verified,
+        "checks": {
+            "replacement_supplier_active": supplier_valid,
+            "supplier_commitment_recorded": commitment_valid,
+            "raw_material_reserved": material_reserved,
+            "inventory_balance_valid": material_stock_valid
+        },
+        "replacement_supplier": recovery["replacement_supplier_name"],
+        "material_id": recovery["material_id"],
+        "quantity_procured_kg": recovery["quantity_procured_kg"],
+        "summary": (
+            f"VERIFIED: {order_id} recovered using "
+            f"{recovery['replacement_supplier_name']}."
+            if verified
+            else f"VERIFICATION FAILED for {order_id}."
+        )
+    }
+
 def apply_recovery_plan(factory: dict, plan: dict) -> dict:
     """
     STAGE 3 (ACT): Executes an approved recovery plan by mutating the factory state
