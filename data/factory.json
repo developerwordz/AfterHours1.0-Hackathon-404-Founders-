@@ -1,0 +1,179 @@
+{
+    "schema_version": "1.0",
+    "factory_id": "TEXRESQ-FACTORY-01",
+    "factory_name": "TexResQ Demo Textile Factory",
+    "simulation": {
+        "time_unit": "hours",
+        "current_time_hours": 0,
+        "time_reference": "All deadlines and lead times are measured from the simulation start (hour 0).",
+        "quantity_convention": "Production quantities are measured in kilograms of material-equivalent throughput for this simplified demo."
+    },
+    "machines": [
+        {
+            "machine_id": "M1",
+            "name": "Cotton Spinning Line",
+            "machine_type": "spinning",
+            "capacity": 120,
+            "capacity_unit": "kg/hour",
+            "operational_status": "operational",
+            "maintenance_duration_hours": 0,
+            "current_assigned_orders": [
+                "ORD-1001"
+            ],
+            "compatible_processes": [
+                "spinning"
+            ],
+            "notes": "Converts cotton fibre into yarn. It cannot perform weaving or finishing."
+        },
+        {
+            "machine_id": "M2",
+            "name": "Air-Jet Weaving Loom",
+            "machine_type": "weaving",
+            "capacity": 90,
+            "capacity_unit": "kg/hour",
+            "operational_status": "operational",
+            "maintenance_duration_hours": 0,
+            "current_assigned_orders": [
+                "ORD-1002"
+            ],
+            "compatible_processes": [
+                "weaving"
+            ],
+            "notes": "Weaves yarn into fabric. It cannot perform spinning or finishing."
+        },
+        {
+            "machine_id": "M3",
+            "name": "Fabric Finishing Unit",
+            "machine_type": "finishing",
+            "capacity": 75,
+            "capacity_unit": "kg/hour",
+            "operational_status": "operational",
+            "maintenance_duration_hours": 0,
+            "current_assigned_orders": [
+                "ORD-1003"
+            ],
+            "compatible_processes": [
+                "finishing"
+            ],
+            "notes": "Performs finishing on woven fabric. It cannot perform spinning or weaving."
+        }
+    ],
+    "orders": [
+        {
+            "order_id": "ORD-1001",
+            "product_name": "Cotton Yarn Batch A",
+            "required_material": "cotton_fibre",
+            "required_material_quantity": 2400,
+            "required_material_unit": "kg",
+            "production_quantity": 2400,
+            "production_quantity_unit": "kg",
+            "deadline_hours": 30,
+            "priority": "high",
+            "production_status": "in_progress",
+            "assigned_machine_id": "M1",
+            "required_process_type": "spinning",
+            "notes": "Single-stage demo order; production quantity is expressed as kg throughput."
+        },
+        {
+            "order_id": "ORD-1002",
+            "product_name": "Cotton Woven Fabric Batch B",
+            "required_material": "cotton_yarn",
+            "required_material_quantity": 1800,
+            "required_material_unit": "kg",
+            "production_quantity": 1800,
+            "production_quantity_unit": "kg",
+            "deadline_hours": 36,
+            "priority": "medium",
+            "production_status": "queued",
+            "assigned_machine_id": "M2",
+            "required_process_type": "weaving",
+            "notes": "Requires cotton yarn as its immediate input material."
+        },
+        {
+            "order_id": "ORD-1003",
+            "product_name": "Finished Cotton Fabric Batch C",
+            "required_material": "woven_cotton_fabric",
+            "required_material_quantity": 1500,
+            "required_material_unit": "kg",
+            "production_quantity": 1500,
+            "production_quantity_unit": "kg",
+            "deadline_hours": 48,
+            "priority": "low",
+            "production_status": "queued",
+            "assigned_machine_id": "M3",
+            "required_process_type": "finishing",
+            "notes": "Requires woven cotton fabric as its immediate input material."
+        }
+    ],
+    "inventory": {
+        "raw_materials": [
+            {
+                "material_id": "cotton_fibre",
+                "material_name": "Raw Cotton Fibre",
+                "available_quantity": 3000,
+                "unit": "kg"
+            },
+            {
+                "material_id": "cotton_yarn",
+                "material_name": "Cotton Yarn",
+                "available_quantity": 2000,
+                "unit": "kg"
+            },
+            {
+                "material_id": "woven_cotton_fabric",
+                "material_name": "Woven Cotton Fabric",
+                "available_quantity": 1600,
+                "unit": "kg"
+            }
+        ],
+        "spare_parts": [
+            {
+                "part_id": "SP-BELT-01",
+                "part_name": "Spinning Line Drive Belt",
+                "available_quantity": 2,
+                "unit": "pieces"
+            },
+            {
+                "part_id": "SP-NOZZLE-02",
+                "part_name": "Weaving Loom Air Nozzle",
+                "available_quantity": 4,
+                "unit": "pieces"
+            },
+            {
+                "part_id": "SP-FILTER-03",
+                "part_name": "Finishing Unit Filter",
+                "available_quantity": 3,
+                "unit": "pieces"
+            }
+        ]
+    },
+    "suppliers": [
+        {
+            "supplier_id": "SUP-01",
+            "supplier_name": "Kaveri Cotton Traders",
+            "supplier_role": "primary",
+            "materials_supplied": [
+                "cotton_fibre"
+            ],
+            "standard_delivery_time_hours": 8,
+            "cost_per_unit": 82,
+            "cost_unit": "INR/kg",
+            "reliability_percent": 96
+        },
+        {
+            "supplier_id": "SUP-02",
+            "supplier_name": "Deccan Textile Inputs",
+            "supplier_role": "backup",
+            "materials_supplied": [
+                "cotton_fibre",
+                "cotton_yarn"
+            ],
+            "standard_delivery_time_hours": 14,
+            "cost_per_unit": 91,
+            "cost_unit": "INR/kg",
+            "reliability_percent": 90
+        }
+    ],
+    "current_incidents": [],
+    "recovery_history": []
+}

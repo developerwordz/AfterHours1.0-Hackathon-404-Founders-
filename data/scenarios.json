@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "time_unit": "hours",
+  "quantity_units": "Use the same units as data/factory.json.",
+  "scenarios": [
+    {
+      "scenario_id": "SCN-001",
+      "scenario_name": "M1 Spinning Line Breakdown",
+      "incident_type": "machine_breakdown",
+      "severity": "high",
+      "description": "The cotton spinning line M1 unexpectedly stops and requires six hours of maintenance.",
+      "affected_machine_id": "M1",
+      "affected_material_id": null,
+      "event_time_hours": 0,
+      "machine_status_override": "failed",
+      "maintenance_duration_hours": 6,
+      "material_inventory_override": null,
+      "supplier_id": null,
+      "supplier_delay_hours": 0,
+      "expected_operational_impact": [
+        "Orders assigned to M1 cannot progress while the machine is unavailable.",
+        "The recovery engine must account for the six-hour maintenance window.",
+        "Other machines must not be treated as substitutes unless process compatibility permits it."
+      ]
+    },
+    {
+      "scenario_id": "SCN-002",
+      "scenario_name": "Cotton Fibre Inventory Shortage",
+      "incident_type": "material_shortage",
+      "severity": "high",
+      "description": "Available cotton fibre falls below the requirement of the pending spinning order.",
+      "affected_machine_id": null,
+      "affected_material_id": "cotton_fibre",
+      "event_time_hours": 0,
+      "machine_status_override": null,
+      "maintenance_duration_hours": 0,
+      "material_inventory_override": {
+        "material_id": "cotton_fibre",
+        "available_quantity": 1200,
+        "unit": "kg"
+      },
+      "supplier_id": null,
+      "supplier_delay_hours": 0,
+      "expected_operational_impact": [
+        "The pending cotton spinning order requires 2400 kg of cotton fibre but only 1200 kg is available.",
+        "Production requiring the missing cotton fibre cannot be completed from current inventory alone.",
+        "The recovery engine must check supplier lead time and procurement quantity before proposing replenishment."
+      ]
+    },
+    {
+      "scenario_id": "SCN-003",
+      "scenario_name": "Primary Supplier Delivery Delay",
+      "incident_type": "supplier_delay",
+      "severity": "medium",
+      "description": "The primary supplier SUP-01 reports a delivery delay of twelve additional hours.",
+      "affected_machine_id": null,
+      "affected_material_id": "cotton_fibre",
+      "event_time_hours": 0,
+      "machine_status_override": null,
+      "maintenance_duration_hours": 0,
+      "material_inventory_override": null,
+      "supplier_id": "SUP-01",
+      "supplier_delay_hours": 12,
+      "expected_operational_impact": [
+        "The primary supplier's effective delivery time increases from 8 hours to 20 hours.",
+        "Any recovery plan relying on this delivery must account for the additional twelve hours.",
+        "The recovery engine may compare an eligible backup supplier, including its cost and lead time."
+      ]
+    },
+    {
+      "scenario_id": "SCN-004",
+      "scenario_name": "Combined Spinning Breakdown and Critical Cotton Shortage",
+      "incident_type": "multiple_disruptions",
+      "severity": "critical",
+      "description": "Machine M1 fails at the same time that available cotton fibre drops to a critically low level.",
+      "affected_machine_id": "M1",
+      "affected_material_id": "cotton_fibre",
+      "event_time_hours": 0,
+      "machine_status_override": "failed",
+      "maintenance_duration_hours": 6,
+      "material_inventory_override": {
+        "material_id": "cotton_fibre",
+        "available_quantity": 500,
+        "unit": "kg"
+      },
+      "supplier_id": "SUP-01",
+      "supplier_delay_hours": 12,
+      "expected_operational_impact": [
+        "M1 cannot produce during its six-hour maintenance window.",
+        "Only 500 kg of cotton fibre is available against the 2400 kg requirement of ORD-1001.",
+        "The primary supplier's delivery is delayed by an additional twelve hours.",
+        "The recovery engine must evaluate machine availability, material replenishment timing and the order deadline together."
+      ]
+    }
+  ]
+}
