@@ -3,7 +3,9 @@ import sys
 from pathlib import Path
 
 import streamlit as st
-
+from ui.inventory import render_inventory_dashboard
+from ui.production_orders import render_production_orders
+from ui.workflow import render_factory_workflow
 # ============================================================
 # PROJECT PATH
 # ============================================================
@@ -602,7 +604,19 @@ with st.sidebar:
         machine_count + supplier_count + inventory_count,
     )
 
+# ============================================================
+# INVENTORY INTELLIGENCE PAGE
+# ============================================================
 
+if st.session_state.active_page == "Inventory":
+
+    render_inventory_dashboard(factory)
+    st.stop()
+
+#PRODUCTION ORDERS
+if st.session_state.active_page == "Production Orders":
+    render_production_orders(factory)
+    st.stop()
 # ============================================================
 # QUALITY CONTROL PAGE
 # ============================================================
@@ -650,7 +664,9 @@ with header_col2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.success("🟢 SYSTEM ONLINE & SECURE")
 
-st.divider()
+if st.session_state.active_page == "Factory Floor":
+    render_factory_workflow(factory)
+    st.divider()
 
 
 # ============================================================

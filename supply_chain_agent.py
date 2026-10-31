@@ -801,23 +801,7 @@ def advance_simulation(factory, hours=2):
     _advance_shipments(factory)
 
     # Keep each network supplied with a future shipment.
-    for network_key, network in factory["supply_networks"].items():
-        active_id = network.get("active_supplier_id")
-        if not active_id:
-            continue
-
-        open_shipments = [
-            item for item in factory["shipments"]
-            if item["network_key"] == network_key
-            and item["status"] not in (
-                "DELIVERED", "DECLINED", "CANCELLED"
-            )
-        ]
-
-        if len(open_shipments) == 0:
-            _new_shipment(factory, network, active_id)
-
-    return disruption
+   
 
 
 # ============================================================
