@@ -21,17 +21,12 @@ from ui.tiles import (
 def _get_material(factory, order):
     material_id = order.get("raw_material_id")
 
-    material = factory.get(
-        "raw_materials", {}
-    ).get(material_id, {})
-
-    remaining = _num(
-        order.get("remaining_quantity_m", 0)
+    material = factory.get("raw_materials", {}).get(
+        material_id, {}
     )
 
-    rate = _num(
-        order.get("raw_material_per_m", 1)
-    )
+    remaining = _num(order.get("remaining_quantity_m", 0))
+    rate = _num(order.get("raw_material_per_m", 1))
 
     return {
         "id": material_id or "UNKNOWN",
@@ -47,18 +42,15 @@ def _get_material(factory, order):
 def _get_machine(factory, order):
     machine_id = order.get("assigned_machine_id")
 
-    machine = factory.get(
-        "machines", {}
-    ).get(machine_id, {})
+    machine = factory.get("machines", {}).get(
+        machine_id, {}
+    )
 
     return machine_id, machine
 
 
 def _get_vendor(factory, order, material_id):
-    """
-    Find an explicitly assigned order vendor or an incoming
-    shipment vendor. Never invent a vendor assignment.
-    """
+    """Find an explicitly assigned vendor or incoming shipment vendor."""
 
     suppliers = factory.get("suppliers", {})
 
@@ -76,6 +68,7 @@ def _get_vendor(factory, order, material_id):
 
     if supplier_id:
         supplier = suppliers.get(supplier_id, {})
+
         if supplier:
             return (
                 supplier.get("name", supplier_id),
@@ -177,13 +170,7 @@ def _get_incoming(factory, material_id):
 
 
 def _get_cost(factory, order, material, vendor_id):
-    """
-    Indicative remaining-order cost.
-
-    Material price is taken from the assigned vendor when available.
-    Otherwise, the lowest active legacy supplier price is used as
-    a benchmark, not as a confirmed vendor quote.
-    """
+    """Calculate indicative remaining-order costs."""
 
     suppliers = factory.get("suppliers", {})
 
@@ -219,9 +206,7 @@ def _get_cost(factory, order, material, vendor_id):
                 price = prices.get(material["id"])
 
                 if price is not None:
-                    available_prices.append(
-                        _num(price)
-                    )
+                    available_prices.append(_num(price))
 
         if available_prices:
             unit_price = min(available_prices)
@@ -233,18 +218,10 @@ def _get_cost(factory, order, material, vendor_id):
         else None
     )
 
-    machine_id, machine = _get_machine(
-        factory, order
-    )
+    machine_id, machine = _get_machine(factory, order)
 
-    remaining = _num(
-        order.get("remaining_quantity_m", 0)
-    )
-
-    capacity = _num(
-        machine.get("capacity_m_per_hr", 0)
-    )
-
+    remaining = _num(order.get("remaining_quantity_m", 0))
+    capacity = _num(machine.get("capacity_m_per_hr", 0))
     operating_rate = _num(
         machine.get("operating_cost_per_hr", 0)
     )
@@ -292,8 +269,8 @@ _ORDER_COLORS = {
     "DELAYED": "#7d292d",
     "REASSIGNED": "#66508a",
     "COMPLETED": "#17634f",
+    "DISPATCHED": "#17634f",
 }
-
 
 _ORDER_ICONS = {
     "IN_PROGRESS": "🏭",
@@ -303,6 +280,7 @@ _ORDER_ICONS = {
     "DELAYED": "⏰",
     "REASSIGNED": "🔄",
     "COMPLETED": "✅",
+    "DISPATCHED": "🚚",
 }
 
 
@@ -316,41 +294,18 @@ def production_order_tile(factory, order_id, order):
         order.get("status", "UNKNOWN")
     ).upper()
 
-    color = _ORDER_COLORS.get(
-        status, "#344454"
-    )
+    color = _ORDER_COLORS.get(status, "#344454")
+    icon = _ORDER_ICONS.get(status, "📦")
 
-    icon = _ORDER_ICONS.get(
-        status, "📦"
-    )
+    total = _num(order.get("total_quantity_m", 0))
+    completed = _num(order.get("completed_quantity_m", 0))
+    remaining = _num(order.get("remaining_quantity_m", 0))
 
-    total = _num(
-        order.get("total_quantity_m", 0)
-    )
-
-    completed = _num(
-        order.get("completed_quantity_m", 0)
-    )
-
-    remaining = _num(
-        order.get("remaining_quantity_m", 0)
-    )
-
-    progress = (
-        completed / total
-        if total > 0
-        else 0
-    )
-
+    progress = completed / total if total > 0 else 0
     progress = max(0, min(progress, 1))
 
-    material = _get_material(
-        factory, order
-    )
-
-    machine_id, machine = _get_machine(
-        factory, order
-    )
+    material = _get_material(factory, order)
+    machine_id, machine = _get_machine(factory, order)
 
     vendor_name, vendor_id = _get_vendor(
         factory, order, material["id"]
@@ -364,9 +319,7 @@ def production_order_tile(factory, order_id, order):
         factory, order, material, vendor_id
     )
 
-    deadline = order.get(
-        "deadline_hrs", "—"
-    )
+    deadline = order.get("deadline_hrs", "—")
 
     available = max(
         0,
@@ -379,15 +332,12 @@ def production_order_tile(factory, order_id, order):
         else "SHORTAGE / PROCUREMENT"
     )
 
-    client = order.get(
-        "client", "Unknown client"
-    )
+    client = order.get("client", "Unknown client")
 
     fabric = str(
         order.get("fabric_type", "Unknown fabric")
     ).replace("_", " ").title()
 
-    # Hover panel rows
     rows = [
         ("Client", client),
         ("Fabric type", fabric),
@@ -396,83 +346,40 @@ def production_order_tile(factory, order_id, order):
         ("Completed", f"{completed:,.0f} m"),
         ("Remaining", f"{remaining:,.0f} m"),
         ("Progress", f"{progress * 100:.1f}%"),
-
         ("Deadline", f"{deadline} hrs"),
         (
             "Late penalty",
-            _money(
-                order.get("penalty_per_hr_late")
-            ) + " / hr"
+            _money(order.get("penalty_per_hr_late")) + " / hr"
         ),
-
         ("Assigned machine", machine_id or "Not assigned"),
-        (
-            "Machine name",
-            machine.get("name", "—")
-        ),
-
+        ("Machine name", machine.get("name", "—")),
         ("Required material", material["name"]),
         ("Material ID", material["id"]),
         (
             "Consumption rate",
             f"{_num(order.get('raw_material_per_m', 1)):g} kg / m"
         ),
-        (
-            "Material required",
-            f"{material['required']:,.1f} kg"
-        ),
-        (
-            "Physical stock",
-            f"{material['stock']:,.1f} kg"
-        ),
-        (
-            "Reserved stock",
-            f"{material['reserved']:,.1f} kg"
-        ),
-        (
-            "Unreserved stock",
-            f"{available:,.1f} kg"
-        ),
-        (
-            "Incoming material",
-            f"{incoming_kg:,.1f} kg"
-        ),
-        (
-            "Incoming shipments",
-            str(shipment_count)
-        ),
-        (
-            "Material status",
-            material_status
-        ),
-
+        ("Material required", f"{material['required']:,.1f} kg"),
+        ("Physical stock", f"{material['stock']:,.1f} kg"),
+        ("Reserved stock", f"{material['reserved']:,.1f} kg"),
+        ("Unreserved stock", f"{available:,.1f} kg"),
+        ("Incoming material", f"{incoming_kg:,.1f} kg"),
+        ("Incoming shipments", str(shipment_count)),
+        ("Material status", material_status),
         ("Vendor", vendor_name),
         ("Vendor ID", vendor_id),
-
         (
             "Estimated production time",
             f"{cost['production_hours']:.2f} hrs"
         ),
-        (
-            "Estimated material cost",
-            _money(cost["material_cost"])
-        ),
-        (
-            "Estimated operating cost",
-            _money(cost["operating_cost"])
-        ),
-        (
-            "Estimated total cost",
-            _money(cost["total"])
-        ),
+        ("Estimated material cost", _money(cost["material_cost"])),
+        ("Estimated operating cost", _money(cost["operating_cost"])),
+        ("Estimated total cost", _money(cost["total"])),
     ]
 
     if cost["benchmark"]:
         rows.append(
-            (
-                "Pricing note",
-                "Lowest active supplier benchmark"
-            )
+            ("Pricing note", "Lowest active supplier benchmark")
         )
 
     markup = _tile_markup(
@@ -482,9 +389,7 @@ def production_order_tile(factory, order_id, order):
         badge=status.replace("_", " "),
         icon=icon,
         name=client,
-        meta=(
-            f"{fabric} · {remaining:,.0f} m remaining"
-        ),
+        meta=f"{fabric} · {remaining:,.0f} m remaining",
         gauge=progress,
         peek_rows=rows,
         hint="PRODUCTION ORDER DETAILS",
@@ -502,6 +407,7 @@ def render_production_order_grid(
     factory,
     columns=3,
     show_completed=False,
+    completed_only=False,
 ):
     orders = factory.get("orders", {})
 
@@ -517,15 +423,22 @@ def render_production_order_grid(
             order.get("status", "")
         ).upper()
 
-        if status == "COMPLETED":
+        if status in {"COMPLETED", "DISPATCHED"}:
             completed.append((order_id, order))
         else:
             active.append((order_id, order))
 
-    displayed = active
+    # IMPORTANT:
+    # completed_only=True means ONLY completed/dispatched orders.
+    # It must not include active orders again.
+    if completed_only:
+        displayed = completed
 
-    if show_completed:
+    elif show_completed:
         displayed = active + completed
+
+    else:
+        displayed = active
 
     if not displayed:
         st.info("No production orders to display.")
@@ -535,19 +448,11 @@ def render_production_order_grid(
 
     for start in range(0, len(displayed), columns):
 
-        row_items = displayed[
-            start:start + columns
-        ]
+        row_items = displayed[start:start + columns]
 
-        cols = st.columns(
-            columns,
-            gap="medium",
-        )
+        cols = st.columns(columns, gap="medium")
 
-        for col, (order_id, order) in zip(
-            cols,
-            row_items,
-        ):
+        for col, (order_id, order) in zip(cols, row_items):
             with col:
                 production_order_tile(
                     factory,
@@ -577,14 +482,14 @@ def render_production_orders(factory):
         order
         for order in orders.values()
         if str(order.get("status", "")).upper()
-        != "COMPLETED"
+        not in {"COMPLETED", "DISPATCHED"}
     ]
 
     completed_orders = [
         order
         for order in orders.values()
         if str(order.get("status", "")).upper()
-        == "COMPLETED"
+        in {"COMPLETED", "DISPATCHED"}
     ]
 
     total_remaining = sum(
@@ -602,31 +507,15 @@ def render_production_orders(factory):
     queued = sum(
         1
         for order in active_orders
-        if str(order.get("status", "")).upper()
-        == "QUEUED"
+        if str(order.get("status", "")).upper() == "QUEUED"
     )
 
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric(
-        "Active Orders",
-        len(active_orders),
-    )
-
-    c2.metric(
-        "At Risk",
-        at_risk,
-    )
-
-    c3.metric(
-        "Queued",
-        queued,
-    )
-
-    c4.metric(
-        "Remaining Production",
-        f"{total_remaining:,.0f} m",
-    )
+    c1.metric("Active Orders", len(active_orders))
+    c2.metric("At Risk", at_risk)
+    c3.metric("Queued", queued)
+    c4.metric("Remaining Production", f"{total_remaining:,.0f} m")
 
     st.divider()
 
@@ -639,17 +528,17 @@ def render_production_orders(factory):
     render_production_order_grid(
         factory,
         columns=3,
-        show_completed=False,
+        completed_only=False,
     )
 
     with st.expander(
-        f"Completed Orders ({len(completed_orders)})"
+        f"Completed / Dispatched Orders ({len(completed_orders)})"
     ):
         if completed_orders:
             render_production_order_grid(
                 factory,
                 columns=3,
-                show_completed=True,
+                completed_only=True,
             )
         else:
             st.caption("No completed orders yet.")
